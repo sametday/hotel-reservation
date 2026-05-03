@@ -1,6 +1,10 @@
+import os
 from pymongo import MongoClient
+from dotenv import load_dotenv
 
-client = MongoClient('mongodb://localhost:27017/')
+load_dotenv()
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+client = MongoClient(MONGO_URI)
 db = client['otel_db']
 
 db.locations.delete_many({})
