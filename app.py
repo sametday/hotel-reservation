@@ -88,7 +88,7 @@ def inject_translations():
 @app.route('/set_lang/<lang>')
 def set_lang(lang):
     resp = redirect(request.referrer or url_for('index'))
-    resp.set_cookie('lang', lang, max_age=60*60*24*30) # 30 günlük kalıcı çerez
+    resp.set_cookie('lang', lang, max_age=60*60*24*30) 
     return resp
 
 # Flask-Login Ayarları
@@ -167,25 +167,34 @@ def admin_required(f):
 @login_required
 @admin_required
 def admin_dashboard():
-    all_bookings = list(db.bookings.find().sort("created_at", -1))
+    # TIRT MANTIK TEMİZLENDİ! 
+    # MongoDB Atlas Aggregation kullanarak veritabanı seviyesinde JOIN işlemleri yapıyoruz.
+    pipeline = [
+        {"$lookup": {"from": "rooms", "localField": "room_id", "foreignField": "_id", "as": "room_info"}},
+        {"$unwind": {"path": "$room_info", "preserveNullAndEmptyArrays": True}},
+        {"$lookup": {"from": "hotels", "localField": "room_info.hotel_id", "foreignField": "_id", "as": "hotel_info"}},
+        {"$unwind": {"path": "$hotel_info", "preserveNullAndEmptyArrays": True}},
+        {"$sort": {"created_at": -1}}
+    ]
+    
+    bookings_cursor = db.bookings.aggregate(pipeline)
+    all_bookings = []
+    total_revenue = 0
+    
+    for b in bookings_cursor:
+        room = b.get('room_info', {})
+        hotel = b.get('hotel_info', {})
+        b['room_info'] = room if room else {"room_type": "Silinmiş Oda", "room_number": "-"}
+        b['hotel_name'] = hotel.get('name', 'Bilinmeyen Otel') if hotel else "Bilinmeyen Otel"
+        total_revenue += float(b.get('total_price', 0))
+        all_bookings.append(b)
+
     all_rooms = list(db.rooms.find())
     all_hotels = list(db.hotels.find())
     
-    for b in all_bookings:
-        room = db.rooms.find_one({"_id": b['room_id']})
-        if room:
-            hotel = db.hotels.find_one({"_id": room.get('hotel_id')})
-            b['room_info'] = room
-            b['hotel_name'] = hotel['name'] if hotel else "Bilinmeyen Otel"
-        else:
-            b['room_info'] = {"room_type": "Silinmiş Oda", "room_number": "-"}
-            b['hotel_name'] = "-"
-            
+    hotel_dict = {h['_id']: h['name'] for h in all_hotels}
     for r in all_rooms:
-        hotel = db.hotels.find_one({"_id": r.get('hotel_id')})
-        r['hotel_name'] = hotel['name'] if hotel else "Bağlantısız Oda"
-    
-    total_revenue = sum(float(b.get('total_price', 0)) for b in all_bookings)
+        r['hotel_name'] = hotel_dict.get(r.get('hotel_id'), "Bağlantısız Oda")
 
     return render_template('admin/dashboard.html', 
                            bookings=all_bookings, 
@@ -291,16 +300,11 @@ def admin_delete_booking(booking_id):
 @admin_required
 def update_room(room_id):
     new_price = request.form.get('price')
-    
     if new_price:
-        db.rooms.update_one(
-            {"_id": ObjectId(room_id)},
-            {"$set": {"price": float(new_price)}}
-        )
+        db.rooms.update_one({"_id": ObjectId(room_id)}, {"$set": {"price": float(new_price)}})
         flash("Oda fiyatı başarıyla güncellendi!", "success")
     else:
         flash("Geçersiz fiyat girdiniz.", "danger")
-        
     return redirect(url_for('admin_dashboard'))
 
 # ==============================================================
@@ -327,8 +331,7 @@ def search():
         }
     else:
         s = session.get('last_search')
-        if not s:
-            return redirect(url_for('index'))
+        if not s: return redirect(url_for('index'))
         city, district = s.get('city'), s.get('district')
         checkin, checkout = s.get('checkin'), s.get('checkout')
         adults, children = s.get('adults', 1), s.get('children', 0)
@@ -339,6 +342,14 @@ def search():
         flash("Geçersiz tarih aralığı!", "danger")
         return redirect(url_for('index'))
     
+    # 1. ÖNCE ÇAKIŞAN REZERVASYONLARI BUL (Sadece room_id çekerek RAM'i koruyoruz)
+    conflict_bookings = list(bookings_col.find({
+        "check_in": {"$lt": checkout},
+        "check_out": {"$gt": checkin}
+    }, {"room_id": 1}))
+    occupied_room_ids = [b['room_id'] for b in conflict_bookings]
+
+    # 2. ŞEHİR/İLÇEYE GÖRE OTELLERİ BUL
     query = {}
     if city: query['city'] = city
     if district: query['district'] = {"$regex": district, "$options": "i"} 
@@ -350,31 +361,16 @@ def search():
         flash("Seçtiğiniz kriterlerde otel bulunamadı.", "info")
         return redirect(url_for('index'))
 
-    # TIRT MANTIK DÜZELTMESİ: Bütün DB'yi hafızaya alıp filtrelemek amatörlüktür. Sadece ilgili odaların rezervasyonlarına bak!
-    all_rooms = list(rooms_col.find({"hotel_id": {"$in": hotel_ids}}))
-    room_ids = [r['_id'] for r in all_rooms]
-
-    conflict_bookings = list(bookings_col.find({
-        "room_id": {"$in": room_ids},
-        "check_in": {"$lt": checkout},
-        "check_out": {"$gt": checkin}
+    # 3. VERİTABANINA "DOLU OLMAYANLARI GETİR" DİYORUZ (Atlas'ın gücü ile N+1 RAM katliamına son)
+    available_rooms_cursor = list(rooms_col.find({
+        "hotel_id": {"$in": hotel_ids},
+        "_id": {"$nin": occupied_room_ids}
     }))
-    occupied_room_ids = [b['room_id'] for b in conflict_bookings]
 
-    room_capacities = {
-        "Standart Oda": 2,
-        "Deluxe Oda": 3,
-        "Aile Süiti": 5,
-        "Kral Dairesi": 4
-    }
+    room_capacities = {"Standart Oda": 2, "Deluxe Oda": 3, "Aile Süiti": 5, "Kral Dairesi": 4}
 
-    available_rooms_cursor = [r for r in all_rooms if r['_id'] not in occupied_room_ids]
-
-    available_rooms = []
-    for room in available_rooms_cursor:
-        room_cap = room_capacities.get(room.get('room_type'), 2) 
-        if room_cap >= total_guests:
-            available_rooms.append(room)
+    # Sadece kapasitesi yetenleri filtrele
+    available_rooms = [r for r in available_rooms_cursor if room_capacities.get(r.get('room_type'), 2) >= total_guests]
 
     valid_hotel_ids = set([r['hotel_id'] for r in available_rooms])
     final_hotels = [h for h in matching_hotels if h['_id'] in valid_hotel_ids]
@@ -437,10 +433,6 @@ def confirm_booking(room_id):
         "created_at": datetime.now()
     }
     
-    print(f"\n====== KAYIT DİKKAT ======")
-    print(f"Veritabanına Yazılan E-Posta: {booking_doc['email']}")
-    print("==========================\n")
-
     db.bookings.insert_one(booking_doc)
     return render_template('success.html', name=customer_name)
 
@@ -448,18 +440,25 @@ def confirm_booking(room_id):
 @login_required
 def my_bookings():
     clean_email = current_user.email.strip()
-    query = {"email": {"$regex": f"^{clean_email}$", "$options": "i"}}
-    user_bookings = list(db.bookings.find(query).sort("created_at", -1))
+    # TIRT MANTIK TEMİZLENDİ! Yine Aggregation kullanıyoruz.
+    pipeline = [
+        {"$match": {"email": {"$regex": f"^{clean_email}$", "$options": "i"}}},
+        {"$lookup": {"from": "rooms", "localField": "room_id", "foreignField": "_id", "as": "room_details"}},
+        {"$unwind": {"path": "$room_details", "preserveNullAndEmptyArrays": True}},
+        {"$lookup": {"from": "hotels", "localField": "room_details.hotel_id", "foreignField": "_id", "as": "hotel_info"}},
+        {"$unwind": {"path": "$hotel_info", "preserveNullAndEmptyArrays": True}},
+        {"$sort": {"created_at": -1}}
+    ]
     
-    for b in user_bookings:
-        room = db.rooms.find_one({"_id": b['room_id']})
-        if room:
-            hotel = db.hotels.find_one({"_id": room.get('hotel_id')})
-            b['room_details'] = room
-            b['hotel_name'] = hotel['name'] if hotel else "Bilinmeyen Otel"
-        else:
-            b['room_details'] = {"room_type": "Silinmiş Oda", "room_number": "-"}
-            b['hotel_name'] = "-"
+    user_bookings_cursor = list(db.bookings.aggregate(pipeline))
+    user_bookings = []
+    
+    for b in user_bookings_cursor:
+        room = b.get('room_details', {})
+        hotel = b.get('hotel_info', {})
+        b['room_details'] = room if room else {"room_type": "Silinmiş Oda", "room_number": "-"}
+        b['hotel_name'] = hotel.get('name', 'Bilinmeyen Otel') if hotel else "Bilinmeyen Otel"
+        user_bookings.append(b)
             
     return render_template('my_bookings.html', bookings=user_bookings)
 
@@ -488,14 +487,10 @@ def checkout(room_id):
 
     if request.method == 'POST':
         customer_name = request.form.get('customer_name')
-        
-        # Eğer kullanıcı giriş yaptıysa formdan ne gelirse gelsin giriş yapan maili kullan
-        # Aksi takdirde rezervasyonlarım sayfasında göremez.
         if current_user.is_authenticated:
             email = current_user.email
         else:
             email = request.form.get('email')
-            
         phone = request.form.get('phone')
 
         booking_doc = {
@@ -554,10 +549,7 @@ def api_get_hotel_details(hotel_id):
         hotel = serialize_doc(hotel)
         hotel['rooms'] = [serialize_doc(r) for r in rooms] 
         
-        return jsonify({
-            "status": "success",
-            "data": hotel
-        }), 200
+        return jsonify({"status": "success", "data": hotel}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": "Geçersiz ID formatı"}), 400
 
@@ -582,16 +574,12 @@ def api_search_hotels():
         "data": [serialize_doc(h) for h in matching_hotels]
     }), 200
 
-# === YENİ EKLENEN ODA API UCU (BAĞIMLI AÇILIR MENÜ İÇİN) ===
 @app.route('/api/v1/get_rooms/<hotel_id>', methods=['GET'])
 @login_required
 @admin_required
 def api_get_rooms(hotel_id):
     try:
-        # MongoDB'den sadece bu hotel_id'ye sahip odaları bul
         rooms = list(db.rooms.find({"hotel_id": ObjectId(hotel_id)}))
-        
-        # Verileri JSON formatına uygun hale getir
         room_data = []
         for r in rooms:
             room_data.append({
@@ -600,31 +588,25 @@ def api_get_rooms(hotel_id):
                 "room_number": r["room_number"],
                 "price": r["price"]
             })
-            
         return jsonify({"status": "success", "data": room_data})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
     
-# === İL SEÇİLDİĞİNDE SADECE O İLİN OTELLERİNİ GETİREN API ===
 @app.route('/api/v1/get_hotels_by_city/<city>', methods=['GET'])
 @login_required
 @admin_required
 def api_get_hotels_by_city(city):
     try:
-        # MongoDB'den sadece seçilen şehirdeki otelleri bul
         hotels = list(db.hotels.find({"city": city}))
-        
         hotel_data = []
         for h in hotels:
             hotel_data.append({
                 "_id": str(h["_id"]),
                 "name": h["name"]
             })
-            
         return jsonify({"status": "success", "data": hotel_data})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
-
 
 @app.route('/api/v1/admin/hotels', methods=['POST'])
 def api_add_hotel():
@@ -641,24 +623,15 @@ def api_add_hotel():
         "image_url": data.get('image_url', '')
     }
     result = db.hotels.insert_one(new_hotel)
-    
-    return jsonify({
-        "status": "success",
-        "message": "Yeni otel sisteme başarıyla eklendi.",
-        "hotel_id": str(result.inserted_id)
-    }), 201
+    return jsonify({"status": "success", "message": "Yeni otel sisteme başarıyla eklendi.", "hotel_id": str(result.inserted_id)}), 201
 
 @app.route('/api/v1/admin/hotels/<hotel_id>', methods=['DELETE'])
 def api_delete_hotel(hotel_id):
     try:
-        # Oteli Sil
         result = db.hotels.delete_one({"_id": ObjectId(hotel_id)})
         if result.deleted_count == 0:
             return jsonify({"status": "error", "message": "Silinecek otel bulunamadı!"}), 404
-            
-        # Otele bağlı odaları da sil (Cascade)
         db.rooms.delete_many({"hotel_id": ObjectId(hotel_id)})
-        
         return jsonify({"status": "success", "message": "Otel ve bağlı odalar sistemden tamamen silindi."}), 200
     except:
         return jsonify({"status": "error", "message": "Geçersiz ID formatı"}), 400
@@ -666,11 +639,7 @@ def api_delete_hotel(hotel_id):
 @app.route('/api/v1/admin/bookings', methods=['GET'])
 def api_get_all_bookings():
     bookings = list(db.bookings.find())
-    return jsonify({
-        "status": "success",
-        "count": len(bookings),
-        "data": [serialize_doc(b) for b in bookings]
-    }), 200
+    return jsonify({"status": "success", "count": len(bookings), "data": [serialize_doc(b) for b in bookings]}), 200
 
 @app.route('/api/v1/admin/bookings/<booking_id>', methods=['DELETE'])
 def api_delete_booking(booking_id):
@@ -678,7 +647,6 @@ def api_delete_booking(booking_id):
         result = db.bookings.delete_one({"_id": ObjectId(booking_id)})
         if result.deleted_count == 0:
             return jsonify({"status": "error", "message": "Rezervasyon bulunamadı!"}), 404
-            
         return jsonify({"status": "success", "message": "Rezervasyon başarıyla iptal edildi."}), 200
     except:
         return jsonify({"status": "error", "message": "Geçersiz ID formatı"}), 400
@@ -687,11 +655,7 @@ def api_delete_booking(booking_id):
 def api_get_locations():
     locations = list(db.locations.find({}, {"_id": 0}))
     location_dict = {loc["city"]: loc["districts"] for loc in locations}
-    
-    return jsonify({
-        "status": "success",
-        "data": location_dict
-    }), 200
+    return jsonify({"status": "success", "data": location_dict}), 200
 
 @app.route('/api/v1/chat', methods=['POST'])
 def api_chat():
@@ -713,7 +677,6 @@ def api_chat():
     if 'state' not in context:
         context['state'] = "browsing"
 
-    # 0. REZERVASYON ONAY AŞAMASI (Hızlı Rezervasyon Akışı)
     msg_clean = re.sub(r'[^\w\s]', ' ', msg)
     if context.get('state') == 'offering_booking':
         yes_words = ["evet", "olur", "yap", "onaylıyorum", "tamam", "istiyorum", "tabii"] if lang == 'tr' else ["yes", "yeah", "sure", "ok", "okay", "confirm", "do it"]
@@ -766,32 +729,25 @@ def api_chat():
             reply = "Lütfen işlemi onaylamak için sadece <b>'Evet'</b> veya iptal etmek için <b>'Hayır'</b> yazın." if lang == 'tr' else "Please just type <b>'Yes'</b> to confirm or <b>'No'</b> to cancel."
             return jsonify({"reply": reply})
             
-    # 1. METİN TEMİZLİĞİ VE ALIAS (TAKMA AD) HARİTASI
     words = msg_clean.split()
-    
     city_aliases = {
         "afyon": "Afyonkarahisar", "urfa": "Şanlıurfa", "antep": "Gaziantep", 
         "maraş": "Kahramanmaraş", "izmit": "Kocaeli", "adapazarı": "Sakarya", 
         "içel": "Mersin", "hatay": "Hatay", "antakya": "Hatay", "kıbrıs": "Girne"
     }
-    
     valid_cities = db.hotels.distinct("city")
     valid_lower = {c.lower(): c for c in valid_cities}
-    
     found_city = None
     
-    # Şehir Arama
     for w in words:
         if w in city_aliases and city_aliases[w] in valid_cities:
             found_city = city_aliases[w]
             break
-            
     if not found_city:
         for c_lower, c_orig in valid_lower.items():
             if c_lower in msg_clean:
                 found_city = c_orig
                 break
-                
     if not found_city:
         all_cities_list = list(valid_lower.keys())
         for w in words:
@@ -801,11 +757,9 @@ def api_chat():
                     found_city = valid_lower[matches[0]]
                     break
 
-    # Şehri Bağlama (Context) Ekle
     if found_city:
         context['city'] = found_city
 
-    # 2. NİYET (INTENT) ALGILAMA
     if lang == 'tr':
         intents = {
             "cheap": ["ucuz", "uygun", "ekonomik", "kampanya", "indirim", "fırsat", "bütçe", "hesaplı"],
@@ -834,12 +788,10 @@ def api_chat():
         if any(kw in msg_clean for kw in keywords):
             detected_intents.append(intent)
             
-    # Niyetleri Bağlama (Context) Ekle
     for i in detected_intents:
         if i not in context['intents']:
             context['intents'].append(i)
             
-    # HESAP / REZERVASYON SORGUSU (Hızlı Yanıtlar)
     if "my_bookings" in detected_intents:
         if not current_user.is_authenticated:
             reply = "Rezervasyonlarınızı görebilmem için lütfen önce sisteme <b>Giriş Yapın</b>." if lang == 'tr' else "Please <b>Login</b> first so I can check your reservations."
@@ -857,11 +809,9 @@ def api_chat():
         reply = "<a href='/login' class='btn btn-warning w-100 text-dark fw-bold'>Giriş Yap / Üye Ol</a>" if lang == 'tr' else "<a href='/login' class='btn btn-warning w-100 text-dark fw-bold'>Login / Register</a>"
         return jsonify({"reply": reply})
 
-    # Güncel Bağlamı Kaydet
     session['chat_context'] = context
     session.modified = True
 
-    # 3. GENEL SOHBET VE SSS (CHIT-CHAT) ALGILAMA
     if lang == 'tr':
         chit_chat_responses = {
             "nasılsın": "Teşekkür ederim, harikayım! Size en iyi tatili bulmak için buradayım. Siz nasılsınız?",
@@ -913,7 +863,6 @@ def api_chat():
             chit_chat_reply = val
             break
 
-    # 4. YANIT OLUŞTURMA (STATE MACHINE LOGIC)
     reply = ""
     checkin_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
     checkout_date = (datetime.now() + timedelta(days=10)).strftime("%Y-%m-%d")
@@ -952,7 +901,6 @@ def api_chat():
             return jsonify({"reply": reply})
             
         else:
-            # TEKLİF AŞAMASI (DÖNÜŞÜM)
             city_hotels = list(db.hotels.find({"city": context['city']}, {"_id": 1}))
             hotel_ids = [h['_id'] for h in city_hotels]
             cheapest_room = db.rooms.find_one({"hotel_id": {"$in": hotel_ids}}, sort=[("price", 1)])
