@@ -51,7 +51,7 @@ TRANSLATIONS = {
         'per_night': '/gece', 'select_btn': 'Seç', 'no_hotels_criteria': 'Aradığınız kriterlerde otel bulunamadı.', 'try_again': 'Lütfen farklı tarihler veya farklı bir bölge seçerek tekrar deneyin.',
         'back_to_search': 'Aramaya Geri Dön', 'payment_info': 'Ödeme Bilgileri', 'customer_info': 'Müşteri Bilgileri', 'email_desc': 'E-Posta Adresi (Onay Maili İçin)',
         'card_info': 'Kart Bilgileri', 'exp_date': 'Son Kullanma (Ay/Yıl)', 'secure_pay': 'Güvenli Ödeme Yap', 'dates': 'Tarihler', 'duration': 'Süre',
-        'all_districts': 'Tüm İlçeler'
+        'all_districts': 'Tüm İlçeler', 'view_on_map': 'Haritada Gör'
     },
     'en': {
         'home': 'Home', 'my_bookings': 'My Bookings', 'login': 'Login', 'register': 'Register', 'logout': 'Logout',
@@ -74,7 +74,7 @@ TRANSLATIONS = {
         'per_night': '/night', 'select_btn': 'Select', 'no_hotels_criteria': 'No hotels found matching your criteria.', 'try_again': 'Please try again with different dates or a different region.',
         'back_to_search': 'Back to Search', 'payment_info': 'Payment Information', 'customer_info': 'Customer Information', 'email_desc': 'Email Address (For Confirmation)',
         'card_info': 'Card Information', 'exp_date': 'Expiry Date (MM/YY)', 'secure_pay': 'Secure Payment', 'dates': 'Dates', 'duration': 'Duration',
-        'all_districts': 'All Districts'
+        'all_districts': 'All Districts', 'view_on_map': 'View on Map'
     }
 }
 
