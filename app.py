@@ -8,11 +8,9 @@ from functools import wraps
 import difflib
 import re
 import random
-
 import os
 from dotenv import load_dotenv
 
-# .env dosyasını yükle
 load_dotenv()
 
 app = Flask(__name__)
@@ -167,8 +165,13 @@ def admin_required(f):
 @login_required
 @admin_required
 def admin_dashboard():
-    # TIRT MANTIK TEMİZLENDİ! 
-    # MongoDB Atlas Aggregation kullanarak veritabanı seviyesinde JOIN işlemleri yapıyoruz.
+    # Güvenli Tutar Çevirme Fonksiyonu (Crash Önleyici)
+    def safe_float(val):
+        try:
+            return float(str(val).replace(',', '').replace(' TL', '').strip() or 0)
+        except:
+            return 0.0
+
     pipeline = [
         {"$lookup": {"from": "rooms", "localField": "room_id", "foreignField": "_id", "as": "room_info"}},
         {"$unwind": {"path": "$room_info", "preserveNullAndEmptyArrays": True}},
@@ -179,14 +182,18 @@ def admin_dashboard():
     
     bookings_cursor = db.bookings.aggregate(pipeline)
     all_bookings = []
-    total_revenue = 0
+    total_revenue = 0.0
     
     for b in bookings_cursor:
-        room = b.get('room_info', {})
-        hotel = b.get('hotel_info', {})
-        b['room_info'] = room if room else {"room_type": "Silinmiş Oda", "room_number": "-"}
-        b['hotel_name'] = hotel.get('name', 'Bilinmeyen Otel') if hotel else "Bilinmeyen Otel"
-        total_revenue += float(b.get('total_price', 0))
+        room = b.get('room_info') or {}
+        hotel = b.get('hotel_info') or {}
+        
+        b['room_info'] = room if room.get('room_type') else {"room_type": "Silinmiş Oda", "room_number": "-"}
+        b['hotel_name'] = hotel.get('name', 'Bilinmeyen Otel')
+        
+        price = safe_float(b.get('total_price', 0))
+        b['total_price'] = price
+        total_revenue += price
         all_bookings.append(b)
 
     all_rooms = list(db.rooms.find())
@@ -342,14 +349,12 @@ def search():
         flash("Geçersiz tarih aralığı!", "danger")
         return redirect(url_for('index'))
     
-    # 1. ÖNCE ÇAKIŞAN REZERVASYONLARI BUL (Sadece room_id çekerek RAM'i koruyoruz)
     conflict_bookings = list(bookings_col.find({
         "check_in": {"$lt": checkout},
         "check_out": {"$gt": checkin}
     }, {"room_id": 1}))
     occupied_room_ids = [b['room_id'] for b in conflict_bookings]
 
-    # 2. ŞEHİR/İLÇEYE GÖRE OTELLERİ BUL
     query = {}
     if city: query['city'] = city
     if district: query['district'] = {"$regex": district, "$options": "i"} 
@@ -361,15 +366,12 @@ def search():
         flash("Seçtiğiniz kriterlerde otel bulunamadı.", "info")
         return redirect(url_for('index'))
 
-    # 3. VERİTABANINA "DOLU OLMAYANLARI GETİR" DİYORUZ (Atlas'ın gücü ile N+1 RAM katliamına son)
     available_rooms_cursor = list(rooms_col.find({
         "hotel_id": {"$in": hotel_ids},
         "_id": {"$nin": occupied_room_ids}
     }))
 
     room_capacities = {"Standart Oda": 2, "Deluxe Oda": 3, "Aile Süiti": 5, "Kral Dairesi": 4}
-
-    # Sadece kapasitesi yetenleri filtrele
     available_rooms = [r for r in available_rooms_cursor if room_capacities.get(r.get('room_type'), 2) >= total_guests]
 
     valid_hotel_ids = set([r['hotel_id'] for r in available_rooms])
@@ -396,12 +398,7 @@ def search():
         if hotel['available_rooms']:
             hotel['starting_price'] = min(r['price'] for r in hotel['available_rooms'])
 
-    return render_template('hotels.html', 
-                           hotels=final_hotels, 
-                           checkin=checkin, 
-                           checkout=checkout, 
-                           city=city, 
-                           total_guests=total_guests)
+    return render_template('hotels.html', hotels=final_hotels, checkin=checkin, checkout=checkout, city=city, total_guests=total_guests)
 
 @app.route('/booking/<room_id>')
 def booking_page(room_id):
@@ -440,7 +437,6 @@ def confirm_booking(room_id):
 @login_required
 def my_bookings():
     clean_email = current_user.email.strip()
-    # TIRT MANTIK TEMİZLENDİ! Yine Aggregation kullanıyoruz.
     pipeline = [
         {"$match": {"email": {"$regex": f"^{clean_email}$", "$options": "i"}}},
         {"$lookup": {"from": "rooms", "localField": "room_id", "foreignField": "_id", "as": "room_details"}},
@@ -454,10 +450,10 @@ def my_bookings():
     user_bookings = []
     
     for b in user_bookings_cursor:
-        room = b.get('room_details', {})
-        hotel = b.get('hotel_info', {})
-        b['room_details'] = room if room else {"room_type": "Silinmiş Oda", "room_number": "-"}
-        b['hotel_name'] = hotel.get('name', 'Bilinmeyen Otel') if hotel else "Bilinmeyen Otel"
+        room = b.get('room_details') or {}
+        hotel = b.get('hotel_info') or {}
+        b['room_details'] = room if room.get('room_type') else {"room_type": "Silinmiş Oda", "room_number": "-"}
+        b['hotel_name'] = hotel.get('name', 'Bilinmeyen Otel')
         user_bookings.append(b)
             
     return render_template('my_bookings.html', bookings=user_bookings)
@@ -487,23 +483,15 @@ def checkout(room_id):
 
     if request.method == 'POST':
         customer_name = request.form.get('customer_name')
-        if current_user.is_authenticated:
-            email = current_user.email
-        else:
-            email = request.form.get('email')
+        email = current_user.email if current_user.is_authenticated else request.form.get('email')
         phone = request.form.get('phone')
 
         booking_doc = {
-            "customer_name": customer_name,
-            "email": email,
-            "phone": phone,
-            "hotel_name": hotel['name'],
-            "room_id": room['_id'],
+            "customer_name": customer_name, "email": email, "phone": phone,
+            "hotel_name": hotel['name'], "room_id": room['_id'],
             "room_info": {"room_type": room['room_type'], "room_number": room['room_number']},
-            "check_in": checkin,
-            "check_out": checkout_date,
-            "total_price": total_price,
-            "created_at": datetime.now()
+            "check_in": checkin, "check_out": checkout_date,
+            "total_price": total_price, "created_at": datetime.now()
         }
         db.bookings.insert_one(booking_doc)
 
@@ -517,62 +505,17 @@ def checkout(room_id):
 # ==============================================================
 
 def serialize_doc(doc):
-    if not doc:
-        return None
+    if not doc: return None
     for key, value in doc.items():
-        if isinstance(value, ObjectId):
-            doc[key] = str(value)
-        elif isinstance(value, datetime):
-            doc[key] = value.strftime("%Y-%m-%d %H:%M:%S")
+        if isinstance(value, ObjectId): doc[key] = str(value)
+        elif isinstance(value, datetime): doc[key] = value.strftime("%Y-%m-%d %H:%M:%S")
     return doc
 
-@app.route('/api/v1/hotels', methods=['GET'])
-def api_get_hotels():
-    hotels = list(db.hotels.find())
-    serialized_hotels = [serialize_doc(h) for h in hotels]
-    
-    return jsonify({
-        "status": "success",
-        "message": "Oteller başarıyla getirildi.",
-        "count": len(serialized_hotels),
-        "data": serialized_hotels
-    }), 200
-
-@app.route('/api/v1/hotels/<hotel_id>', methods=['GET'])
-def api_get_hotel_details(hotel_id):
-    try:
-        hotel = db.hotels.find_one({"_id": ObjectId(hotel_id)})
-        if not hotel:
-            return jsonify({"status": "error", "message": "Otel bulunamadı!"}), 404
-        
-        rooms = list(db.rooms.find({"hotel_id": ObjectId(hotel_id)}))
-        hotel = serialize_doc(hotel)
-        hotel['rooms'] = [serialize_doc(r) for r in rooms] 
-        
-        return jsonify({"status": "success", "data": hotel}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": "Geçersiz ID formatı"}), 400
-
-@app.route('/api/v1/search', methods=['POST'])
-def api_search_hotels():
-    data = request.get_json()
-    if not data:
-        return jsonify({"status": "error", "message": "Arama verisi eksik!"}), 400
-
-    city = data.get('city')
-    district = data.get('district')
-    
-    query = {}
-    if city: query['city'] = city
-    if district: query['district'] = {"$regex": district, "$options": "i"}
-    
-    matching_hotels = list(db.hotels.find(query))
-    
-    return jsonify({
-        "status": "success",
-        "count": len(matching_hotels),
-        "data": [serialize_doc(h) for h in matching_hotels]
-    }), 200
+@app.route('/api/v1/locations', methods=['GET'])
+def api_get_locations():
+    locations = list(db.locations.find({}, {"_id": 0}))
+    location_dict = {loc["city"]: loc["districts"] for loc in locations}
+    return jsonify({"status": "success", "data": location_dict}), 200
 
 @app.route('/api/v1/get_rooms/<hotel_id>', methods=['GET'])
 @login_required
@@ -580,14 +523,7 @@ def api_search_hotels():
 def api_get_rooms(hotel_id):
     try:
         rooms = list(db.rooms.find({"hotel_id": ObjectId(hotel_id)}))
-        room_data = []
-        for r in rooms:
-            room_data.append({
-                "_id": str(r["_id"]),
-                "room_type": r["room_type"],
-                "room_number": r["room_number"],
-                "price": r["price"]
-            })
+        room_data = [{"_id": str(r["_id"]), "room_type": r["room_type"], "room_number": r["room_number"], "price": r["price"]} for r in rooms]
         return jsonify({"status": "success", "data": room_data})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
@@ -598,373 +534,193 @@ def api_get_rooms(hotel_id):
 def api_get_hotels_by_city(city):
     try:
         hotels = list(db.hotels.find({"city": city}))
-        hotel_data = []
-        for h in hotels:
-            hotel_data.append({
-                "_id": str(h["_id"]),
-                "name": h["name"]
-            })
+        hotel_data = [{"_id": str(h["_id"]), "name": h["name"]} for h in hotels]
         return jsonify({"status": "success", "data": hotel_data})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
 
-@app.route('/api/v1/admin/hotels', methods=['POST'])
-def api_add_hotel():
-    data = request.get_json()
-    if not data or not data.get('name') or not data.get('city'):
-        return jsonify({"status": "error", "message": "Otel adı ve şehri zorunludur!"}), 400
-    
-    new_hotel = {
-        "name": data.get('name'),
-        "city": data.get('city'),
-        "district": data.get('district', ''),
-        "stars": int(data.get('stars', 3)),
-        "description": data.get('description', ''),
-        "image_url": data.get('image_url', '')
-    }
-    result = db.hotels.insert_one(new_hotel)
-    return jsonify({"status": "success", "message": "Yeni otel sisteme başarıyla eklendi.", "hotel_id": str(result.inserted_id)}), 201
+# ==============================================================
+#                 5. STATE-MACHINE OOP CHATBOT
+# ==============================================================
 
-@app.route('/api/v1/admin/hotels/<hotel_id>', methods=['DELETE'])
-def api_delete_hotel(hotel_id):
-    try:
-        result = db.hotels.delete_one({"_id": ObjectId(hotel_id)})
-        if result.deleted_count == 0:
-            return jsonify({"status": "error", "message": "Silinecek otel bulunamadı!"}), 404
-        db.rooms.delete_many({"hotel_id": ObjectId(hotel_id)})
-        return jsonify({"status": "success", "message": "Otel ve bağlı odalar sistemden tamamen silindi."}), 200
-    except:
-        return jsonify({"status": "error", "message": "Geçersiz ID formatı"}), 400
-
-@app.route('/api/v1/admin/bookings', methods=['GET'])
-def api_get_all_bookings():
-    bookings = list(db.bookings.find())
-    return jsonify({"status": "success", "count": len(bookings), "data": [serialize_doc(b) for b in bookings]}), 200
-
-@app.route('/api/v1/admin/bookings/<booking_id>', methods=['DELETE'])
-def api_delete_booking(booking_id):
-    try:
-        result = db.bookings.delete_one({"_id": ObjectId(booking_id)})
-        if result.deleted_count == 0:
-            return jsonify({"status": "error", "message": "Rezervasyon bulunamadı!"}), 404
-        return jsonify({"status": "success", "message": "Rezervasyon başarıyla iptal edildi."}), 200
-    except:
-        return jsonify({"status": "error", "message": "Geçersiz ID formatı"}), 400
-    
-@app.route('/api/v1/locations', methods=['GET'])
-def api_get_locations():
-    locations = list(db.locations.find({}, {"_id": 0}))
-    location_dict = {loc["city"]: loc["districts"] for loc in locations}
-    return jsonify({"status": "success", "data": location_dict}), 200
-
-@app.route('/api/v1/chat', methods=['POST'])
-def api_chat():
-    lang = request.cookies.get('lang', 'tr')
-    data = request.get_json()
-    msg = data.get('message', '').lower()
-    
-    # --- BAĞLAM (CONTEXT) YÖNETİMİ ---
-    reset_words = ["baştan", "iptal", "vazgeçtim", "sıfırla", "başka", "temizle"] if lang == 'tr' else ["reset", "cancel", "start over", "clear", "another", "new"]
-    if any(w in msg for w in reset_words):
-        session['chat_context'] = {"city": None, "intents": [], "state": "browsing"}
-        reply = "Nasıl isterseniz, her şeyi sıfırladım. Yeni bir tatil rotası çizelim. Nereye gitmek istersiniz?" if lang == 'tr' else "As you wish, everything is reset. Let's plan a new trip. Where would you like to go?"
-        return jsonify({"reply": reply})
-        
-    if 'chat_context' not in session:
-        session['chat_context'] = {"city": None, "intents": [], "state": "browsing"}
-        
-    context = session['chat_context']
-    if 'state' not in context:
-        context['state'] = "browsing"
-
-    msg_clean = re.sub(r'[^\w\s]', ' ', msg)
-    if context.get('state') == 'offering_booking':
-        yes_words = ["evet", "olur", "yap", "onaylıyorum", "tamam", "istiyorum", "tabii"] if lang == 'tr' else ["yes", "yeah", "sure", "ok", "okay", "confirm", "do it"]
-        no_words = ["hayır", "istemiyorum", "vazgeç", "yok", "kalsın"] if lang == 'tr' else ["no", "nope", "cancel", "don't", "stop"]
-        
-        if any(w in msg_clean for w in yes_words):
-            if not current_user.is_authenticated:
-                reply = "Hızlı rezervasyon yapabilmem için lütfen sayfadan <b>Giriş Yapın</b> veya <b>Kayıt Olun</b>." if lang == 'tr' else "Please <b>Login</b> or <b>Register</b> first so I can make a quick booking for you."
-                return jsonify({"reply": reply})
-                
-            room_id = context.get('proposed_room_id')
-            hotel_name = context.get('proposed_hotel_name')
-            total_price = context.get('proposed_price', 0)
-            
-            if not room_id:
-                context['state'] = 'browsing'
-                session['chat_context'] = context
-                reply = "Bir hata oluştu, lütfen baştan başlayalım. Hangi şehre gitmek istersiniz?" if lang == 'tr' else "An error occurred, let's start over. Which city would you like to go?"
-                return jsonify({"reply": reply})
-                
-            checkin_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
-            checkout_date = (datetime.now() + timedelta(days=10)).strftime("%Y-%m-%d")
-            
-            new_booking = {
-                "customer_name": current_user.name,
-                "email": current_user.email,
-                "phone": "Chatbot Hızlı İşlem",
-                "room_id": ObjectId(room_id),
-                "check_in": checkin_date,
-                "check_out": checkout_date,
-                "total_price": total_price,
-                "created_at": datetime.now()
-            }
-            db.bookings.insert_one(new_booking)
-            
-            context['state'] = 'browsing'
-            context['city'] = None
-            context['intents'] = []
-            session['chat_context'] = context
-            
-            reply = f"🎉 <b>İşlem Başarılı!</b><br>{hotel_name} oteli için ({checkin_date} - {checkout_date}) tarihleri arasında rezervasyonunuzu anında tamamladım. Detayları 'Rezervasyonlarım' sayfasından görebilirsiniz." if lang == 'tr' else f"🎉 <b>Success!</b><br>I have completed your booking for {hotel_name} between ({checkin_date} - {checkout_date}). You can see details in 'My Reservations'."
-            return jsonify({"reply": reply})
-            
-        elif any(w in msg_clean for w in no_words):
-            context['state'] = 'browsing'
-            session['chat_context'] = context
-            reply = "Anladım, işlemi iptal ettim. Size farklı şehirlerdeki seçenekleri göstermeye devam edebilirim. Nereye bakalım?" if lang == 'tr' else "Understood, I canceled the operation. I can keep showing you options in other cities. Where to?"
-            return jsonify({"reply": reply})
-        else:
-            reply = "Lütfen işlemi onaylamak için sadece <b>'Evet'</b> veya iptal etmek için <b>'Hayır'</b> yazın." if lang == 'tr' else "Please just type <b>'Yes'</b> to confirm or <b>'No'</b> to cancel."
-            return jsonify({"reply": reply})
-            
-    words = msg_clean.split()
-    city_aliases = {
-        "afyon": "Afyonkarahisar", "urfa": "Şanlıurfa", "antep": "Gaziantep", 
-        "maraş": "Kahramanmaraş", "izmit": "Kocaeli", "adapazarı": "Sakarya", 
-        "içel": "Mersin", "hatay": "Hatay", "antakya": "Hatay", "kıbrıs": "Girne"
-    }
-    valid_cities = db.hotels.distinct("city")
-    valid_lower = {c.lower(): c for c in valid_cities}
-    found_city = None
-    
-    for w in words:
-        if w in city_aliases and city_aliases[w] in valid_cities:
-            found_city = city_aliases[w]
-            break
-    if not found_city:
-        for c_lower, c_orig in valid_lower.items():
-            if c_lower in msg_clean:
-                found_city = c_orig
-                break
-    if not found_city:
-        all_cities_list = list(valid_lower.keys())
-        for w in words:
-            if len(w) >= 4:
-                matches = difflib.get_close_matches(w, all_cities_list, n=1, cutoff=0.75)
-                if matches:
-                    found_city = valid_lower[matches[0]]
-                    break
-
-    if found_city:
-        context['city'] = found_city
-
-    if lang == 'tr':
-        intents = {
-            "cheap": ["ucuz", "uygun", "ekonomik", "kampanya", "indirim", "fırsat", "bütçe", "hesaplı"],
-            "luxury": ["lüks", "5 yıldız", "kral", "pahalı", "kaliteli", "premium", "deluxe", "harika"],
-            "pool": ["havuz", "deniz", "sahil", "plaj", "yüzme", "kum", "aqua", "su", "termal", "kaplıca"],
-            "family": ["aile", "çocuk", "bebek", "geniş", "kalabalık", "büyük"],
-            "romantic": ["balayı", "romantik", "sevgili", "eş", "çift", "aşk"],
-            "food": ["kahvaltı", "yemek", "her şey", "büfe", "restoran"],
-            "my_bookings": ["rezervasyonum", "rezervasyonlarım", "bilet", "sipariş", "biletlerim"],
-            "auth": ["giriş yap", "üye ol", "kayıt ol", "hesabım", "giriş"]
+class HolidayBotManager:
+    """Spagetti if-else bloklarını çözen temiz, state-machine tabanlı Chatbot Sınıfı"""
+    def __init__(self, db_conn):
+        self.db = db_conn
+        self.city_aliases = {
+            "afyon": "Afyonkarahisar", "urfa": "Şanlıurfa", "antep": "Gaziantep", 
+            "maraş": "Kahramanmaraş", "izmit": "Kocaeli", "adapazarı": "Sakarya", 
+            "içel": "Mersin", "hatay": "Hatay", "antakya": "Hatay", "kıbrıs": "Girne"
         }
-    else:
-        intents = {
+
+    def get_intents(self, lang):
+        if lang == 'tr':
+            return {
+                "cheap": ["ucuz", "uygun", "ekonomik", "kampanya", "indirim", "fırsat", "bütçe", "hesaplı"],
+                "luxury": ["lüks", "5 yıldız", "kral", "pahalı", "kaliteli", "premium", "deluxe", "harika"],
+                "pool": ["havuz", "deniz", "sahil", "plaj", "yüzme", "kum", "aqua", "su", "termal", "kaplıca"],
+                "family": ["aile", "çocuk", "bebek", "geniş", "kalabalık", "büyük"],
+                "romantic": ["balayı", "romantik", "sevgili", "eş", "çift", "aşk"],
+                "food": ["kahvaltı", "yemek", "her şey", "büfe", "restoran"],
+                "my_bookings": ["rezervasyonum", "rezervasyonlarım", "bilet", "sipariş", "biletlerim"],
+                "auth": ["giriş yap", "üye ol", "kayıt ol", "hesabım", "giriş"]
+            }
+        return {
             "cheap": ["cheap", "affordable", "economic", "discount", "budget", "sale"],
             "luxury": ["luxury", "5 star", "expensive", "quality", "premium", "deluxe", "great", "king"],
             "pool": ["pool", "sea", "beach", "swim", "sand", "aqua", "water", "thermal"],
             "family": ["family", "child", "children", "baby", "large", "big"],
             "romantic": ["honeymoon", "romantic", "couple", "wife", "husband", "love"],
-            "food": ["breakfast", "food", "all inclusive", "buffet", "restaurant"],
-            "my_bookings": ["my bookings", "my reservation", "my reservations", "my ticket", "my tickets"],
+            "my_bookings": ["my bookings", "my reservation", "my ticket", "my tickets"],
             "auth": ["login", "sign in", "register", "sign up", "my account"]
         }
-    
-    detected_intents = []
-    for intent, keywords in intents.items():
-        if any(kw in msg_clean for kw in keywords):
-            detected_intents.append(intent)
-            
-    for i in detected_intents:
-        if i not in context['intents']:
-            context['intents'].append(i)
-            
-    if "my_bookings" in detected_intents:
-        if not current_user.is_authenticated:
-            reply = "Rezervasyonlarınızı görebilmem için lütfen önce sisteme <b>Giriş Yapın</b>." if lang == 'tr' else "Please <b>Login</b> first so I can check your reservations."
-            return jsonify({"reply": reply})
-        else:
-            user_bookings = list(db.bookings.find({"email": current_user.email}))
-            if not user_bookings:
-                reply = "Şu an aktif bir rezervasyonunuz bulunmuyor. Sizin için yeni bir tatil planlayalım mı?" if lang == 'tr' else "You don't have any active reservations. Shall we plan a new trip?"
-            else:
-                b = user_bookings[-1]
-                reply = f"En son rezervasyonunuz: <b>{b['check_in']}</b> ile <b>{b['check_out']}</b> tarihleri arasında.<br>Detayları görmek için 'Rezervasyonlarım' paneline gidebilirsiniz." if lang == 'tr' else f"Your latest booking is between <b>{b['check_in']}</b> and <b>{b['check_out']}</b>.<br>You can check the details in 'My Reservations' panel."
-            return jsonify({"reply": reply})
-            
-    if "auth" in detected_intents:
-        reply = "<a href='/login' class='btn btn-warning w-100 text-dark fw-bold'>Giriş Yap / Üye Ol</a>" if lang == 'tr' else "<a href='/login' class='btn btn-warning w-100 text-dark fw-bold'>Login / Register</a>"
-        return jsonify({"reply": reply})
 
-    session['chat_context'] = context
-    session.modified = True
-
-    if lang == 'tr':
-        chit_chat_responses = {
-            "nasılsın": "Teşekkür ederim, harikayım! Size en iyi tatili bulmak için buradayım. Siz nasılsınız?",
-            "iyi misin": "Teşekkür ederim, sistemlerim tam performans çalışıyor! Size tatil planlamada yardımcı olmak için sabırsızlanıyorum.",
-            "naber": "İyiyim, teşekkürler! Sizin için tatil fırsatlarını tarıyorum. Nasıl bir yer arıyorsunuz?",
-            "kimsin": "Ben 36Otel'in Yapay Zeka destekli tatil asistanıyım. Türkiye'nin dört bir yanındaki binlerce oteli saniyeler içinde sizin için analiz edebilirim.",
-            "adın ne": "Benim özel bir ismim yok, bana kısaca 'Asistan' diyebilirsiniz. Önceliğim size harika bir tatil bulmak!",
-            "yapay zeka": "Evet, Doğal Dil İşleme yetenekleriyle donatılmış bir yapay zekayım. Cümlelerinizi analiz edip size en uygun oteli bulabilirim.",
-            "fiyatlar nasıl": "Fiyatlar seçtiğiniz şehre ve otel tipine göre değişiyor ancak sistemimizde her bütçeye uygun (800 TL'den başlayan) seçenekler mevcut.",
-            "pahalı": "Her bütçeye uygun otellerimiz var. İsterseniz 'Ucuz' veya 'Ekonomik' diyerek en uygun fiyatlı olanları görebilirsiniz.",
-            "hangi şehirler": "Türkiye'nin 81 ilinin tamamında otel ağımız var! Antalya, İzmir, Trabzon, Van... Nereye gitmek istersiniz?",
-            "indirim": "En güncel indirimleri ve kampanya fırsatlarını yakalamak için bana gitmek istediğiniz şehri söylemeniz yeterli.",
-            "fıkra": "Tatil planlamaktan fıkra ezberlemeye pek vaktim olmadı maalesef 😊 Ama size harika bir tatil bularak yüzünüzü güldürebileceğime eminim!",
-            "teşekkür": "Rica ederim! Size yardımcı olabildiysem ne mutlu bana. Başka bir sorunuz var mı?",
-            "sağol": "Rica ederim, her zaman buradayım! Şimdiden harika bir tatil dilerim.",
-            "hava": "Hava durumunu anlık olarak bilemiyorum ama Akdeniz sahilleri yazları her zaman harikadır! Sıcak bir sahil tatili ister misiniz?",
-            "iptal": "Rezervasyonlarınızı sisteme giriş yaptıktan sonra 'Rezervasyonlarım' sayfasından kolayca iptal edebilirsiniz. Her şey çok esnek!",
-            "iletişim": "Bize destek@36otel.com adresinden ulaşabilirsiniz.",
-            "yaşın kaç": "Ben dijital bir varlığım, yaşım yok. Ancak tecrübem on binlerce rezervasyon verisine dayanıyor!",
-            "günaydın": "Günaydın! Harika bir gün ve harika bir tatil planlamak için buradayım.",
-            "iyi akşamlar": "İyi akşamlar! Günün yorgunluğunu atacağınız harika bir tatil planlamaya ne dersiniz?",
-            "iyi geceler": "İyi geceler! Yarın harika bir tatil rotası çizmek için burada olacağım."
-        }
-    else:
-        chit_chat_responses = {
-            "how are you": "Thank you, I'm doing great! I'm here to find the best vacation for you. How are you?",
-            "what's up": "I'm good, thanks! Scanning vacation deals for you. What kind of place are you looking for?",
-            "who are you": "I'm 36Otel's AI Holiday Assistant. I can analyze thousands of hotels across Turkey in seconds.",
-            "your name": "I don't have a specific name, you can just call me 'Assistant'. My priority is finding you a great vacation!",
-            "ai": "Yes, I am an AI equipped with NLP. I can understand your sentences and find the best hotel.",
-            "prices": "Prices vary depending on the city and hotel type, but we have affordable options starting from 800 TL.",
-            "expensive": "We have hotels for every budget. You can say 'cheap' or 'economic' to see the most affordable ones.",
-            "cities": "We have hotels in all 81 provinces of Turkey! Antalya, Izmir, Trabzon... Where would you like to go?",
-            "discount": "To catch the latest discounts, just tell me which city you want to go to.",
-            "joke": "I haven't had much time to memorize jokes 😊 But finding you a great holiday will make you smile!",
-            "thank": "You're welcome! I'm glad I could help. Do you have any other questions?",
-            "weather": "I don't know the weather exactly, but the Mediterranean coast is always wonderful in summer!",
-            "cancel": "You can easily cancel your reservations from the 'My Reservations' page.",
-            "contact": "You can reach us at support@36otel.com.",
-            "age": "I'm a digital entity, I don't have an age. But my experience is vast!",
-            "good morning": "Good morning! I'm here to plan a wonderful vacation.",
-            "good evening": "Good evening! Let's plan a great vacation to relieve your tiredness.",
-            "good night": "Good night! I'll be here tomorrow to draw a great vacation route."
+    def get_chitchat(self, lang):
+        if lang == 'tr':
+            return {
+                "nasılsın": "Teşekkür ederim, harikayım! Size en iyi tatili bulmak için buradayım.",
+                "kimsin": "Ben 36Otel'in akıllı tatil asistanıyım.",
+                "teşekkür": "Rica ederim! Size yardımcı olabildiysem ne mutlu bana."
+            }
+        return {
+            "how are you": "Thank you, I'm doing great! I'm here to find the best vacation for you.",
+            "who are you": "I'm 36Otel's smart Holiday Assistant.",
+            "thank": "You're welcome! I'm glad I could help."
         }
 
-    chit_chat_reply = None
-    for key, val in chit_chat_responses.items():
-        if key in msg_clean:
-            chit_chat_reply = val
-            break
+    def extract_city(self, text):
+        words = text.split()
+        valid_cities = self.db.hotels.distinct("city")
+        valid_lower = {c.lower(): c for c in valid_cities}
 
-    reply = ""
-    checkin_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
-    checkout_date = (datetime.now() + timedelta(days=10)).strftime("%Y-%m-%d")
-    
-    if context['city']:
-        hotel_count = db.hotels.count_documents({"city": context['city']})
-        if hotel_count == 0:
-            bad_city = context['city']
+        for w in words:
+            if w in self.city_aliases and self.city_aliases[w] in valid_cities: return self.city_aliases[w]
+        for c_lower, c_orig in valid_lower.items():
+            if c_lower in text: return c_orig
+        for w in words:
+            if len(w) >= 4:
+                matches = difflib.get_close_matches(w, list(valid_lower.keys()), n=1, cutoff=0.75)
+                if matches: return valid_lower[matches[0]]
+        return None
+
+    def process_booking_confirmation(self, text, lang, context, user):
+        yes_words = ["evet", "olur", "yap", "onaylıyorum", "tamam"] if lang == 'tr' else ["yes", "ok", "confirm"]
+        no_words = ["hayır", "istemiyorum", "vazgeç"] if lang == 'tr' else ["no", "cancel"]
+
+        if any(w in text for w in yes_words):
+            if not user.is_authenticated:
+                return ("Hızlı rezervasyon için lütfen sayfadan <b>Giriş Yapın</b>." if lang == 'tr' else "Please <b>Login</b> for quick booking.")
+            
+            checkin = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+            checkout = (datetime.now() + timedelta(days=10)).strftime("%Y-%m-%d")
+            
+            self.db.bookings.insert_one({
+                "customer_name": user.name, "email": user.email, "phone": "Chatbot Hızlı İşlem",
+                "room_id": ObjectId(context.get('proposed_room_id')),
+                "check_in": checkin, "check_out": checkout,
+                "total_price": context.get('proposed_price', 0), "created_at": datetime.now()
+            })
+            
+            context['state'] = 'browsing'
             context['city'] = None
-            session['chat_context'] = context
-            reply = f"Maalesef şu an {bad_city} bölgesinde sistemimize kayıtlı otel kalmamış. Ege sahilleri veya Antalya harika alternatifler. İlgilenir misiniz?" if lang == 'tr' else f"Unfortunately, we don't have any hotels registered in {bad_city} right now. How about Aegean coast or Antalya?"
-            return jsonify({"reply": reply})
-            
-        if not context['intents']:
-            if chit_chat_reply:
-                reply = chit_chat_reply + (f"<br><br>Bu arada {context['city']} tatiliniz için nasıl bir konsept aradığınızı düşünmeye devam ediyor musunuz? (Lüks, Ucuz)" if lang == 'tr' else f"<br><br>By the way, are you still thinking about what concept you want for your {context['city']} vacation? (Luxury, Cheap)")
-                return jsonify({"reply": reply})
+            return f"🎉 <b>İşlem Başarılı!</b><br>{context.get('proposed_hotel_name')} için rezervasyonunuz tamamlandı." if lang == 'tr' else "🎉 <b>Success!</b> Booking completed."
 
-            if lang == 'tr':
-                responses = [
-                    f"Harika bir seçim! {context['city']} şehrinde tam {hotel_count} otelimiz var. Peki nasıl bir konsept arıyorsunuz? (Örn: Lüks, Ucuz, Havuzlu, Aile)",
-                    f"{context['city']} tatili için sizi arama zahmetinden kurtarayım. Bütçe dostu mu olsun, yoksa 5 yıldızlı lüks bir yer mi arıyorsunuz?",
-                    f"{context['city']} bölgesini sizin için taradım. Bana kiminle gideceğinizi (Örn: Eşimle, Çocuklarla) söylerseniz size en uygun oteli bulabilirim."
-                ]
-                btn_text = f"Sadece Tüm {context['city']} Otellerini Gör"
-            else:
-                responses = [
-                    f"Great choice! We have {hotel_count} hotels in {context['city']}. What concept are you looking for? (e.g. Luxury, Cheap, Pool, Family)",
-                    f"Let me save you the trouble for {context['city']}. Do you want a budget-friendly place or a 5-star luxury hotel?",
-                    f"I scanned {context['city']} for you. If you tell me who you are going with (e.g. Spouse, Children), I can find the best hotel."
-                ]
-                btn_text = f"See All {context['city']} Hotels"
-                
-            reply = random.choice(responses)
-            reply += f"<br><form action='/search' method='POST' class='mt-2'><input type='hidden' name='city' value='{context['city']}'><input type='hidden' name='checkin' value='{checkin_date}'><input type='hidden' name='checkout' value='{checkout_date}'><button type='submit' class='btn btn-sm btn-outline-warning text-white w-100'>{btn_text}</button></form>"
-            return jsonify({"reply": reply})
-            
-        else:
-            city_hotels = list(db.hotels.find({"city": context['city']}, {"_id": 1}))
-            hotel_ids = [h['_id'] for h in city_hotels]
-            cheapest_room = db.rooms.find_one({"hotel_id": {"$in": hotel_ids}}, sort=[("price", 1)])
-            
-            if cheapest_room:
-                proposed_hotel = db.hotels.find_one({"_id": cheapest_room['hotel_id']})
-                nights = 3
-                total_price = cheapest_room['price'] * nights
-                
-                context['proposed_room_id'] = str(cheapest_room['_id'])
-                context['proposed_hotel_name'] = proposed_hotel['name']
-                context['proposed_price'] = total_price
-                context['state'] = 'offering_booking'
-                session['chat_context'] = context
-                
-                reply = f"Mükemmel! {context['city']} bölgesinde tam aradığınız gibi bir yer buldum: <b>{proposed_hotel['name']}</b>.<br>Gelecek hafta 3 gecelik toplam fiyat: {total_price} TL.<br><br>Sizin adınıza şu an hemen <b>hızlı rezervasyon</b> yapmamı onaylıyor musunuz? (Evet / Hayır)" if lang == 'tr' else f"Perfect! I found exactly what you're looking for in {context['city']}: <b>{proposed_hotel['name']}</b>.<br>Total price for 3 nights next week: {total_price} TL.<br><br>Do you confirm me to make a <b>quick booking</b> for you right now? (Yes / No)"
-            else:
-                reply = f"Harika! {context['city']} bölgesinde size uygun {hotel_count} otel buldum. Hemen inceleyebilirsiniz." if lang == 'tr' else f"Great! I found {hotel_count} suitable hotels in {context['city']}. You can review them now."
-                btn_text = "Otelleri Göster" if lang == 'tr' else "Show Hotels"
-                reply += f"<form action='/search' method='POST' class='mt-3'><input type='hidden' name='city' value='{context['city']}'><input type='hidden' name='checkin' value='{checkin_date}'><input type='hidden' name='checkout' value='{checkout_date}'><button type='submit' class='btn btn-sm btn-primary text-white fw-bold w-100'>{btn_text}</button></form>"
-                
-                session['chat_context'] = {"city": None, "intents": [], "state": "browsing"}
-                
-            return jsonify({"reply": reply})
+        elif any(w in text for w in no_words):
+            context['state'] = 'browsing'
+            return "İşlemi iptal ettim. Nereye bakalım?" if lang == 'tr' else "Canceled. Where else?"
+        return "Lütfen 'Evet' veya 'Hayır' yazın." if lang == 'tr' else "Please say 'Yes' or 'No'."
 
-    else:
-        if context['intents']:
-            if chit_chat_reply:
-                return jsonify({"reply": chit_chat_reply + (" Bu arada tatiliniz için şehir kararı verdiniz mi?" if lang == 'tr' else " By the way, have you decided on a city for your vacation?")})
+    def respond(self, msg, lang, user, context):
+        text = re.sub(r'[^\w\s]', ' ', msg.lower())
 
-            if lang == 'tr':
-                intent_map = {"cheap": "Bütçe dostu ekonomik", "luxury": "Ultra lüks 5 yıldızlı", "pool": "Havuzlu ve ferah", "family": "Çocuk dostu aile", "romantic": "Romantik ve sessiz"}
-                primary_intent = context['intents'][-1]
-                reply = f"{intent_map.get(primary_intent, 'Harika')} bir tatil aradığınızı anlıyorum. Türkiye'nin 81 ilinde seçeneklerimiz var. Öncelikli olarak hangi <b>bölgeye veya şehre</b> (Örn: Antalya, İzmir) gitmek istersiniz?"
+        # 1. Booking Confirmation State
+        if context.get('state') == 'offering_booking':
+            reply = self.process_booking_confirmation(text, lang, context, user)
+            return reply, context
+
+        # 2. Extract Intent and Entities
+        city = self.extract_city(text)
+        if city: context['city'] = city
+
+        detected_intents = [k for k, v in self.get_intents(lang).items() if any(kw in text for kw in v)]
+        for i in detected_intents:
+            if i not in context['intents']: context['intents'].append(i)
+
+        # 3. Handle Direct Commands (Auth / Bookings)
+        if "auth" in detected_intents:
+            return "<a href='/login' class='btn btn-warning w-100 fw-bold'>Giriş Yap / Üye Ol</a>" if lang == 'tr' else "<a href='/login' class='btn btn-warning w-100'>Login / Register</a>", context
+        
+        if "my_bookings" in detected_intents:
+            if not user.is_authenticated: return "Lütfen Giriş Yapın." if lang == 'tr' else "Please Login.", context
+            bookings = list(self.db.bookings.find({"email": user.email}))
+            if not bookings: return "Aktif rezervasyonunuz yok." if lang == 'tr' else "No active bookings.", context
+            b = bookings[-1]
+            return f"En son rezervasyonunuz: <b>{b['check_in']}</b> - <b>{b['check_out']}</b>." if lang == 'tr' else f"Latest booking: <b>{b['check_in']}</b> - <b>{b['check_out']}</b>.", context
+
+        # 4. State Machine: Offer a Hotel if City is known
+        if context['city']:
+            hotel_count = self.db.hotels.count_documents({"city": context['city']})
+            if hotel_count == 0:
+                bad_city = context['city']
+                context['city'] = None
+                return f"Maalesef {bad_city} bölgesinde otel kalmamış." if lang == 'tr' else f"No hotels in {bad_city}.", context
+
+            if not context['intents']:
+                return f"{context['city']} şehrinde {hotel_count} otelimiz var. Konseptiniz nedir? (Lüks, Ucuz vs.)" if lang == 'tr' else f"We have {hotel_count} hotels in {context['city']}. What concept?", context
             else:
-                intent_map = {"cheap": "Budget-friendly", "luxury": "Ultra luxury 5-star", "pool": "Refreshing with a pool", "family": "Family-friendly", "romantic": "Romantic and quiet"}
-                primary_intent = context['intents'][-1]
-                reply = f"I understand you are looking for a {intent_map.get(primary_intent, 'great')} vacation. We have options in all 81 provinces. Which <b>region or city</b> (e.g. Antalya, Izmir) would you prefer?"
-            return jsonify({"reply": reply})
-        else:
-            if chit_chat_reply:
-                return jsonify({"reply": chit_chat_reply})
-            
-            greet_words_tr = ["merhaba", "selam", "hey", "hi", "iyi", "günler"]
-            greet_words_en = ["hello", "hi", "hey", "good"]
-            greet_words = greet_words_tr if lang == 'tr' else greet_words_en
-            
-            if any(w in msg_clean for w in greet_words):
-                reply = "Merhaba! Ben 36Otel Yapay Zeka Asistanı. Sizinle sohbet ederek hayalinizdeki tatili bulabilirim. Nereye gitmek istersiniz?" if lang == 'tr' else "Hello! I am 36Otel AI Assistant. I can help you find your dream vacation. Where would you like to go?"
-                return jsonify({"reply": reply})
-            else:
-                if lang == 'tr':
-                    responses = [
-                        "Söylediğinizi tam olarak kavrayamadım. Bir yapay zeka olarak alanım sadece tatil, otel ve seyahattir. Lütfen gitmek istediğiniz ŞEHRİ (Örn: Muğla) yazın.",
-                        "Anlamakta zorluk çektim 😊 Kararsızsanız bana sadece 'Havuzlu', 'Ucuz' veya 'Antalya' gibi anahtar kelimeler yazmanız yeterli.",
-                        "Derin öğrenme algoritmalarım şu an için sadece Tatil ve Konaklama terimlerini algılayabiliyor. Lütfen bana aradığınız otel konseptini veya şehri belirtir misiniz?"
-                    ]
+                city_hotels = list(self.db.hotels.find({"city": context['city']}, {"_id": 1}))
+                cheapest_room = self.db.rooms.find_one({"hotel_id": {"$in": [h['_id'] for h in city_hotels]}}, sort=[("price", 1)])
+                
+                if cheapest_room:
+                    hotel = self.db.hotels.find_one({"_id": cheapest_room['hotel_id']})
+                    context['proposed_room_id'] = str(cheapest_room['_id'])
+                    context['proposed_hotel_name'] = hotel['name']
+                    context['proposed_price'] = cheapest_room['price'] * 3
+                    context['state'] = 'offering_booking'
+                    return f"Mükemmel! {hotel['name']} otelini buldum. Fiyat: {context['proposed_price']} TL. Hemen hızlı rezervasyon yapayım mı? (Evet/Hayır)" if lang == 'tr' else f"Found {hotel['name']}. Confirm booking? (Yes/No)", context
                 else:
-                    responses = [
-                        "I couldn't quite grasp what you said. As an AI, my expertise is limited to travel and hotels. Please type the CITY you want to visit.",
-                        "I had trouble understanding 😊 If you are undecided, just type keywords like 'Pool', 'Cheap' or 'Antalya'.",
-                        "My deep learning algorithms can only understand Travel and Accommodation terms right now. Could you please specify a hotel concept or city?"
-                    ]
-                return jsonify({"reply": random.choice(responses)})
+                    context['state'] = 'browsing'
+                    context['city'] = None
+                    return f"{context['city']} bölgesinde size uygun {hotel_count} otel buldum. Butona tıklayın." if lang == 'tr' else "Found hotels for you.", context
+
+        # 5. Fallback & Chit-Chat
+        chitchat = next((v for k, v in self.get_chitchat(lang).items() if k in text), None)
+        if chitchat: return chitchat, context
+
+        if context['intents']:
+            return "Harika! Peki hangi bölgeye veya şehre gitmek istersiniz?" if lang == 'tr' else "Great! Which city?", context
+
+        greet_words = ["merhaba", "selam", "hey", "iyi"] if lang == 'tr' else ["hello", "hi", "hey"]
+        if any(w in text for w in greet_words):
+            return "Merhaba! Tatil hayalinizi gerçekleştirmek için buradayım. Nereye gitmek istersiniz?" if lang == 'tr' else "Hello! Where to?", context
+
+        return "Söylediğinizi anlayamadım. Sadece tatil ve şehir terimlerini algılayabiliyorum." if lang == 'tr' else "I only understand travel and city terms.", context
+
+# Initialize Bot
+bot_manager = HolidayBotManager(db)
+
+@app.route('/api/v1/chat', methods=['POST'])
+def api_chat():
+    lang = request.cookies.get('lang', 'tr')
+    msg = request.get_json().get('message', '').lower()
+    
+    reset_words = ["baştan", "iptal", "sıfırla"] if lang == 'tr' else ["reset", "cancel", "clear"]
+    if any(w in msg for w in reset_words):
+        session['chat_context'] = {"city": None, "intents": [], "state": "browsing"}
+        return jsonify({"reply": "Sıfırladım. Nereye gitmek istersiniz?" if lang == 'tr' else "Reset. Where to?"})
+        
+    if 'chat_context' not in session:
+        session['chat_context'] = {"city": None, "intents": [], "state": "browsing"}
+        
+    context = session['chat_context']
+    if 'state' not in context: context['state'] = "browsing"
+
+    # OOP Bot'a yönlendiriyoruz (Bütün çöp kod buradan temizlendi!)
+    reply_text, updated_context = bot_manager.respond(msg, lang, current_user, context)
+    
+    session['chat_context'] = updated_context
+    session.modified = True
+    return jsonify({"reply": reply_text})
 
 @app.errorhandler(404)
 def page_not_found(e):
