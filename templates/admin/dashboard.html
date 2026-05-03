@@ -52,25 +52,6 @@
         </div>
     </div>
 
-    <!-- Chart.js Grafikleri -->
-    <div class="row mb-5">
-        <div class="col-md-6">
-            <div class="card border-0 shadow-sm rounded-4 p-4 h-100">
-                <h5 class="fw-bold mb-3"><i class="bi bi-pie-chart-fill text-primary me-2"></i>Şehirlere Göre Dağılım</h5>
-                <canvas id="cityChart" height="200"></canvas>
-            </div>
-        </div>
-        <div class="col-md-6">
-            <div class="card border-0 shadow-sm rounded-4 p-4 h-100 bg-dark text-white">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="fw-bold mb-0"><i class="bi bi-graph-up-arrow text-success me-2"></i>Platform Büyüme Analizi</h5>
-                    <span class="badge bg-success">Canlı</span>
-                </div>
-                <canvas id="growthChart" height="200"></canvas>
-            </div>
-        </div>
-    </div>
-
     <ul class="nav nav-pills mb-4" id="adminTab" role="tablist">
         <li class="nav-item">
             <button class="nav-link active fw-bold px-4" data-bs-toggle="pill" data-bs-target="#bookingsTab">Rezervasyonlar</button>
@@ -396,53 +377,16 @@
 <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
-    // Chart.js Kurulumu
-    document.addEventListener("DOMContentLoaded", function() {
-        const cityLabels = {{ chart_labels|safe }};
-        const cityData = {{ chart_data|safe }};
-        
-        // Pasta Grafik (Şehir Dağılımı)
-        new Chart(document.getElementById('cityChart'), {
-            type: 'doughnut',
-            data: {
-                labels: cityLabels.length ? cityLabels : ['Veri Yok'],
-                datasets: [{
-                    data: cityData.length ? cityData : [1],
-                    backgroundColor: ['#38bdf8', '#fbbf24', '#f87171', '#34d399', '#a78bfa'],
-                    borderWidth: 0
-                }]
-            },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
-        });
-
-        // Çizgi Grafik (Simüle Büyüme)
-        new Chart(document.getElementById('growthChart'), {
-            type: 'line',
-            data: {
-                labels: ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz'],
-                datasets: [{
-                    label: 'Aylık Satış (TL)',
-                    data: [12000, 19000, 15000, 32000, 45000, {{ revenue }}],
-                    borderColor: '#34d399',
-                    backgroundColor: 'rgba(52, 211, 153, 0.2)',
-                    tension: 0.4,
-                    fill: true
-                }]
-            },
-            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#ccc' } }, x: { grid: { display: false }, ticks: { color: '#ccc' } } }, plugins: { legend: { display: false } } }
-        });
-    });
-
     $(document).ready(function() {
         // Tüm tabloları Akıllı Tablo (DataTables) yap ve Türkçeleştir
         $('.table').DataTable({
             "language": {
                 "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/tr.json"
             },
-            "pageLength": 10
+            "pageLength": 10,
+            "destroy": true  // Çift yüklemeyi önle
         });
     });
 

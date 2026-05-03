@@ -187,24 +187,11 @@ def admin_dashboard():
     
     total_revenue = sum(float(b.get('total_price', 0)) for b in all_bookings)
 
-    # Chart.js için İstatistikler (Şehirlere Göre Rezervasyon Sayısı)
-    city_counts = {}
-    for b in all_bookings:
-        if b['hotel_name'] != "-" and b['hotel_name'] != "Bilinmeyen Otel":
-            h = db.hotels.find_one({"_id": b.get('room_info', {}).get('hotel_id')})
-            if h and h.get('city'):
-                city_counts[h['city']] = city_counts.get(h['city'], 0) + 1
-                
-    chart_labels = list(city_counts.keys())
-    chart_data = list(city_counts.values())
-
     return render_template('admin/dashboard.html', 
                            bookings=all_bookings, 
                            rooms=all_rooms, 
                            hotels=all_hotels, 
-                           revenue=total_revenue,
-                           chart_labels=chart_labels,
-                           chart_data=chart_data)
+                           revenue=total_revenue)
 
 @app.route('/admin/add-hotel', methods=['POST'])
 @login_required

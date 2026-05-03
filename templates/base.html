@@ -3,11 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>36Otel</title>
+    <meta name="description" content="Türkiye'nin 81 ilinde binlerce otel arasından size en uygun olanı bulun. Hızlı rezervasyon, güvenli ödeme.">
+    <meta name="keywords" content="otel, rezervasyon, tatil, konaklama, Türkiye, ucuz otel">
+    <meta name="theme-color" content="#eab308">
+    <title>36Otel - Türkiye'nin En Hızlı Otel Rezervasyon Platformu</title>
     
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <!-- Preconnect for faster loading -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- DNS Prefetch -->
+    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+    
+    <!-- Critical CSS - Inline for faster rendering -->
+    <style>
+        :root {
+            --pasha-gold: #eab308;
+            --pasha-dark: #0f172a;
+            --neon-accent: #38bdf8;
+        }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--pasha-dark);
+            color: #f8fafc;
+            margin: 0;
+            overflow-x: hidden;
+        }
+    </style>
+    
+    <!-- Deferred CSS Loading -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" media="print" onload="this.media='all'">
+    <noscript><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"></noscript>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" media="print" onload="this.media='all'">
+    <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css"></noscript>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Poppins:wght@300;400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Poppins:wght@300;400;600&display=swap" rel="stylesheet"></noscript>
     
     <style>
         :root {
@@ -210,10 +244,10 @@
         </div>
     </footer>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" defer></script>
 
-    <!-- Chatbot Widget -->
-    <div id="chat-widget">
+    <!-- Chatbot Widget - Lazy Load -->
+    <div id="chat-widget" style="display:none;">
         <div id="chat-window">
             <div id="chat-header">
                 <span><i class="bi bi-robot me-2"></i>36Otel Asistanı</span>
@@ -233,6 +267,13 @@
     </div>
 
     <script>
+        // Lazy load chatbot after page load
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                document.getElementById('chat-widget').style.display = 'block';
+            }, 2000);
+        });
+
         function toggleChat() {
             const chatWindow = document.getElementById('chat-window');
             chatWindow.style.display = chatWindow.style.display === 'block' ? 'none' : 'block';
