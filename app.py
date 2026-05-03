@@ -501,7 +501,14 @@ def checkout(room_id):
 
     if request.method == 'POST':
         customer_name = request.form.get('customer_name')
-        email = request.form.get('email')
+        
+        # Eğer kullanıcı giriş yaptıysa formdan ne gelirse gelsin giriş yapan maili kullan
+        # Aksi takdirde rezervasyonlarım sayfasında göremez.
+        if current_user.is_authenticated:
+            email = current_user.email
+        else:
+            email = request.form.get('email')
+            
         phone = request.form.get('phone')
 
         booking_doc = {
