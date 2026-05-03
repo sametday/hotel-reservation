@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container py-5 mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-5">
+            <div class="card border-0 rounded-4 p-4 glass-card">
+                <div class="card-body">
+                    <div class="text-center mb-4">
+                        <i class="bi bi-person-plus-fill display-4 text-info"></i>
+                        <h2 class="fw-bold mt-2 text-white">{{ t('register') }}</h2>
+                    </div>
+                    <form action="/register" method="POST">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small text-white-50">{{ t('name_surname') }}</label>
+                            <input type="text" name="name" class="form-control form-control-lg glass-input" placeholder="Adınız Soyadınız" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small text-white-50">{{ t('email') }}</label>
+                            <input type="email" name="email" class="form-control form-control-lg glass-input" placeholder="ornek@mail.com" required>
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label fw-bold small text-white-50">{{ t('password') }}</label>
+                            <input type="password" name="password" class="form-control form-control-lg glass-input" placeholder="••••••••" required>
+                        </div>
+                        <button type="submit" class="btn w-100 fw-bold py-3 shadow text-white border-0" style="background: linear-gradient(45deg, #38bdf8, #0ea5e9); border-radius: 12px; font-size: 1.1rem;">
+                            <i class="bi bi-person-check-fill me-2"></i> {{ t('register_btn') }}
+                        </button>
+                    </form>
+                    <hr class="my-4 border-secondary">
+                    <p class="text-center small text-white-50">
+                        {{ t('have_account') }} <a href="/login" class="text-info fw-bold text-decoration-none border-bottom border-info pb-1">{{ t('login_now') }}</a>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<style>
+    .glass-card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.1) !important; }
+    .glass-input { background-color: rgba(255, 255, 255, 0.05) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; color: #f8fafc !important; transition: all 0.3s ease; }
+    .glass-input:focus { background-color: rgba(255, 255, 255, 0.1) !important; border-color: #38bdf8 !important; box-shadow: 0 0 15px rgba(56, 189, 248, 0.3) !important; }
+    .glass-input::placeholder { color: rgba(255,255,255,0.3) !important; }
+</style>
+{% endblock %}

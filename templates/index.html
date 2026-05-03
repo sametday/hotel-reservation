@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+    input[type="date"], select, input[type="text"], input[type="number"] {
+        color: #f8fafc !important;
+        background-color: rgba(255, 255, 255, 0.05) !important;
+        border: 1px solid rgba(255,255,255,0.2) !important;
+        min-height: 48px;
+        backdrop-filter: blur(10px);
+        transition: all 0.3s ease;
+    }
+    input[type="date"]:focus, select:focus, input[type="text"]:focus, input[type="number"]:focus {
+        background-color: rgba(255, 255, 255, 0.1) !important;
+        box-shadow: 0 0 15px rgba(56, 189, 248, 0.3) !important;
+        border-color: #38bdf8 !important;
+        color: #fff !important;
+    }
+    select option {
+        background-color: #1e293b;
+        color: #fff;
+    }
+</style>
+
+<div class="p-5 mb-4 bg-dark text-white rounded-5 shadow-lg position-relative" 
+     style="background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), url('https://images.unsplash.com/photo-1455587734955-081b22074882?auto=format&fit=crop&w=1920&q=80') center/cover; height: 500px;">
+    <div class="container py-5 text-center mt-5">
+        <h1 class="display-3 fw-bold">{{ t('hero_title') }}</h1>
+        <p class="fs-4 fw-light">{{ t('hero_desc') }}</p>
+    </div>
+</div>
+
+<div class="container position-relative" style="margin-top: -80px; z-index: 10;">
+    <div class="card shadow-lg border-0 p-4 rounded-4" style="background: rgba(30, 41, 59, 0.6); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1) !important;">
+        <form action="/search" method="POST" class="row g-2 align-items-end">
+            
+            <div class="col-md-2">
+                <label class="form-label fw-bold text-muted small text-uppercase"><i class="bi bi-geo-alt-fill me-1"></i>{{ t('city') }}</label>
+                <select name="city" id="citySelect" class="form-select shadow-sm" required>
+                    <option value="">{{ t('select') }}</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-bold text-muted small text-uppercase">{{ t('district') }}</label>
+                <select name="district" id="districtSelect" class="form-select shadow-sm">
+                    <option value="">{{ t('select_city_first') }}</option>
+                </select>
+            </div>
+            
+            <div class="col-md-2">
+                <label class="form-label fw-bold text-muted small text-uppercase">{{ t('checkin') }}</label>
+                <input type="date" name="checkin" id="checkin" class="form-control shadow-sm" required>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-bold text-muted small text-uppercase">{{ t('checkout') }}</label>
+                <input type="date" name="checkout" id="checkout" class="form-control shadow-sm" required>
+            </div>
+
+            <div class="col-md-1">
+                <label class="form-label fw-bold text-muted small text-uppercase">{{ t('adults') }}</label>
+                <input type="number" name="adults" class="form-control shadow-sm text-center" min="1" value="2" required>
+            </div>
+            <div class="col-md-1">
+                <label class="form-label fw-bold text-muted small text-uppercase">{{ t('children') }}</label>
+                <input type="number" name="children" class="form-control shadow-sm text-center" min="0" value="0" required>
+            </div>
+            
+            <div class="col-md-2">
+                <button type="submit" class="btn w-100 fw-bold py-2 shadow position-relative overflow-hidden" style="min-height: 48px; background: linear-gradient(45deg, #38bdf8, #818cf8); border: none; color: white; transition: all 0.3s ease; border-radius: 8px; box-shadow: 0 0 20px rgba(56, 189, 248, 0.4) !important; text-transform: uppercase; letter-spacing: 1px;">{{ t('search_btn') }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        
+        // ================= 1. DİNAMİK 81 İL/İLÇE MOTORU (API İLE) =================
+        const citySelect = document.getElementById('citySelect');
+        const districtSelect = document.getElementById('districtSelect');
+        
+        // Jinja'dan JS'e çeviri aktarımı
+        const t_all_districts = "{{ t('all_districts') }}";
+        const t_select_city_first = "{{ t('select_city_first') }}";
+
+        if (citySelect && districtSelect) {
+            // Arka planda kendi REST API'mize istek atıp 973 ilçeyi çekiyoruz
+            fetch('/api/v1/locations')
+                .then(response => response.json())
+                .then(res => {
+                    if(res.status === "success") {
+                        const locationData = res.data;
+
+                        // 81 İli alfabetik olarak sıralayıp Dropdown'a ekle
+                        Object.keys(locationData).sort().forEach(city => {
+                            const option = document.createElement('option');
+                            option.value = city;
+                            option.textContent = city;
+                            citySelect.appendChild(option);
+                        });
+
+                        // Kullanıcı bir il seçtiğinde, o ilin ilçelerini getir
+                        citySelect.addEventListener('change', function() {
+                            const selectedCity = this.value;
+                            districtSelect.innerHTML = ''; // Eski ilçeleri temizle
+
+                            if(selectedCity && locationData[selectedCity]) {
+                                // Arama motoru için "Tüm İlçeler" seçeneğini en başa ekle
+                                districtSelect.innerHTML = `<option value="">${t_all_districts}</option>`;
+                                
+                                // Seçilen ilin ilçelerini ekle
+                                locationData[selectedCity].forEach(function(district) {
+                                    const option = document.createElement('option');
+                                    option.value = district;
+                                    option.textContent = district;
+                                    districtSelect.appendChild(option);
+                                });
+                            } else {
+                                districtSelect.innerHTML = `<option value="">${t_select_city_first}</option>`;
+                            }
+                        });
+                    }
+                })
+                .catch(error => console.error("API'den konumlar çekilirken hata oluştu:", error));
+        }
+
+        // ================= 2. GELİŞMİŞ TARİH KONTROLÜ =================
+        function getLocalISODate(date) {
+            let offset = date.getTimezoneOffset() * 60000;
+            return (new Date(date - offset)).toISOString().split('T')[0];
+        }
+
+        const todayDate = new Date();
+        const tomorrowDate = new Date(todayDate);
+        tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+
+        const checkinInput = document.getElementById('checkin');
+        const checkoutInput = document.getElementById('checkout');
+
+        if(checkinInput && checkoutInput) {
+            checkinInput.min = getLocalISODate(todayDate);
+            checkoutInput.min = getLocalISODate(tomorrowDate); 
+
+            checkinInput.addEventListener('change', function() {
+                let minCheckoutDate = new Date(this.value);
+                minCheckoutDate.setDate(minCheckoutDate.getDate() + 1);
+                
+                let minCheckoutStr = getLocalISODate(minCheckoutDate);
+                checkoutInput.min = minCheckoutStr;
+                
+                if(!checkoutInput.value || checkoutInput.value < minCheckoutStr) {
+                    checkoutInput.value = minCheckoutStr;
+                }
+            });
+        }
+    });
+</script>
+
+{% endblock %}

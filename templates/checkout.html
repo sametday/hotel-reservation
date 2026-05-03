@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container py-5 mt-4">
+    <div class="row g-5">
+        <div class="col-md-7 col-lg-8">
+            <h4 class="mb-3 fw-bold text-white"><i class="bi bi-credit-card-2-front text-info me-2"></i>{{ t('payment_info') }}</h4>
+            
+            <form action="/checkout/{{ room._id }}?checkin={{ checkin }}&checkout={{ checkout }}" method="POST" class="needs-validation">
+                <div class="row g-3 p-4 rounded-4 mb-4 glass-card">
+                    <h5 class="fw-bold mb-1 text-white border-bottom border-secondary pb-2">{{ t('customer_info') }}</h5>
+                    <div class="col-sm-12">
+                        <label class="form-label small fw-bold text-white-50">{{ t('name_surname') }}</label>
+                        <input type="text" name="customer_name" class="form-control form-control-lg glass-input" required>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label small fw-bold text-white-50">{{ t('email_desc') }}</label>
+                        <input type="email" name="email" class="form-control form-control-lg glass-input" placeholder="ornek@mail.com" required>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label small fw-bold text-white-50">{{ t('phone') }}</label>
+                        <input type="tel" name="phone" class="form-control form-control-lg glass-input" required>
+                    </div>
+                </div>
+
+                <div class="row g-3 p-4 rounded-4 glass-card position-relative overflow-hidden">
+                    <div class="position-absolute top-0 end-0 opacity-25" style="width: 200px; height: 200px; background: radial-gradient(circle, rgba(56,189,248,0.8) 0%, rgba(0,0,0,0) 70%); border-radius: 50%; filter: blur(40px); z-index: 0; transform: translate(30%, -30%);"></div>
+                    <div class="d-flex justify-content-between align-items-center mb-1" style="z-index: 1;">
+                        <h5 class="fw-bold mb-0 text-white">{{ t('card_info') }}</h5>
+                        <div class="text-end">
+                            <i class="bi bi-cc-visa fs-3 text-info me-1"></i>
+                            <i class="bi bi-cc-mastercard fs-3 text-warning"></i>
+                        </div>
+                    </div>
+                    <div class="col-md-12" style="z-index: 1;">
+                        <label class="form-label small fw-bold text-white-50">{{ t('card_name') }}</label>
+                        <input type="text" class="form-control form-control-lg glass-input text-uppercase" required>
+                    </div>
+                    <div class="col-md-12" style="z-index: 1;">
+                        <label class="form-label small fw-bold text-white-50">{{ t('card_no') }}</label>
+                        <input type="text" id="cardNumber" class="form-control form-control-lg glass-input" placeholder="0000 0000 0000 0000" maxlength="19" required>
+                    </div>
+                    <div class="col-md-6" style="z-index: 1;">
+                        <label class="form-label small fw-bold text-white-50">{{ t('exp_date') }}</label>
+                        <input type="text" id="expDate" class="form-control form-control-lg glass-input" placeholder="AA/YY" maxlength="5" required>
+                    </div>
+                    <div class="col-md-6" style="z-index: 1;">
+                        <label class="form-label small fw-bold text-white-50">CVV</label>
+                        <input type="password" id="cvv" class="form-control form-control-lg glass-input" placeholder="***" maxlength="3" pattern="\d{3}" required>
+                    </div>
+                </div>
+
+                <button class="w-100 btn btn-lg mt-4 fw-bold shadow text-white border-0" style="background: linear-gradient(45deg, #10b981, #059669); min-height: 60px; font-size: 1.2rem; border-radius: 12px;" type="submit">
+                    <i class="bi bi-shield-lock-fill me-2"></i> {{ "{:,.0f}".format(total_price) }} TL - {{ t('secure_pay') }}
+                </button>
+            </form>
+        </div>
+
+        <div class="col-md-5 col-lg-4">
+            <div class="card border-0 shadow-sm rounded-4 sticky-top glass-card" style="top: 100px; overflow: hidden;">
+                <img src="{{ hotel.image_url }}" onerror="this.src='https://images.pexels.com/photos/164595/pexels-photo-164595.jpeg'" class="card-img-top object-fit-cover" style="height: 220px; border-bottom: 3px solid #38bdf8;">
+                <div class="card-body p-4">
+                    <h5 class="fw-bold mb-1 text-white">{{ hotel.name }}</h5>
+                    <p class="text-white-50 small mb-4"><i class="bi bi-geo-alt-fill text-danger me-1"></i>{{ hotel.city }}, {{ hotel.district }}</p>
+                    
+                    <ul class="list-group list-group-flush mb-3">
+                        <li class="list-group-item d-flex justify-content-between px-0 pb-3 bg-transparent border-secondary">
+                            <span class="text-white-50"><i class="bi bi-door-open me-2"></i>{{ t('room_type') }}</span>
+                            <strong class="text-end text-light">{{ room.room_type }}<br><small class="text-info">#{{ room.room_number }}</small></strong>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between px-0 py-3 bg-transparent border-secondary">
+                            <span class="text-white-50"><i class="bi bi-calendar-check me-2"></i>{{ t('dates') }}</span>
+                            <strong class="text-end text-light">{{ checkin }} <br><i class="bi bi-arrow-down small text-white-50"></i><br> {{ checkout }}</strong>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between px-0 py-3 bg-transparent border-secondary">
+                            <span class="text-white-50"><i class="bi bi-moon-stars me-2"></i>{{ t('duration') }}</span>
+                            <strong class="text-light">{{ days }} {{ t('night') }}</strong>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between px-0 pt-3 border-bottom-0 bg-transparent">
+                            <span class="fw-bold text-white">{{ t('total_price') }}</span>
+                            <strong class="fs-4 text-success">{{ "{:,.0f}".format(total_price) }} TL</strong>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .glass-card {
+        background: rgba(30, 41, 59, 0.6);
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(255,255,255,0.1) !important;
+    }
+    .glass-input {
+        background-color: rgba(255, 255, 255, 0.05) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        color: #f8fafc !important;
+        transition: all 0.3s ease;
+    }
+    .glass-input:focus {
+        background-color: rgba(255, 255, 255, 0.1) !important;
+        border-color: #38bdf8 !important;
+        box-shadow: 0 0 15px rgba(56, 189, 248, 0.3) !important;
+    }
+    .glass-input::placeholder {
+        color: rgba(255,255,255,0.3) !important;
+    }
+</style>
+
+<script>
+    document.getElementById('cardNumber').addEventListener('input', function (e) {
+        let value = this.value.replace(/\D/g, ''); 
+        value = value.replace(/(.{4})/g, '$1 ').trim(); 
+        this.value = value;
+    });
+
+    document.getElementById('expDate').addEventListener('input', function (e) {
+        let value = this.value.replace(/\D/g, ''); 
+        if (value.length > 2) {
+            value = value.substring(0, 2) + '/' + value.substring(2, 4);
+        }
+        this.value = value;
+    });
+
+    document.getElementById('cvv').addEventListener('input', function (e) {
+        this.value = this.value.replace(/\D/g, ''); 
+    });
+</script>
+{% endblock %}
