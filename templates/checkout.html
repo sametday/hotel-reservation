@@ -5,7 +5,7 @@
         <div class="col-md-7 col-lg-8">
             <h4 class="mb-3 fw-bold text-white"><i class="bi bi-credit-card-2-front text-info me-2"></i>{{ t('payment_info') }}</h4>
             
-            <form action="/checkout/{{ room._id }}?checkin={{ checkin }}&checkout={{ checkout }}" method="POST" class="needs-validation">
+            <form id="checkoutForm" action="/checkout/{{ room._id }}?checkin={{ checkin }}&checkout={{ checkout }}" method="POST" class="needs-validation">
                 <div class="row g-3 p-4 rounded-4 mb-4 glass-card">
                     <h5 class="fw-bold mb-1 text-white border-bottom border-secondary pb-2">{{ t('customer_info') }}</h5>
                     <div class="col-sm-12">
@@ -86,6 +86,29 @@
     </div>
 </div>
 
+<!-- 3D Secure Modal -->
+<div class="modal fade" id="secure3DModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content glass-card border-info">
+            <div class="modal-header border-bottom border-secondary">
+                <h5 class="modal-title text-white"><i class="bi bi-shield-lock-fill text-success me-2"></i>3D Secure Doğrulama</h5>
+            </div>
+            <div class="modal-body text-center py-4">
+                <p class="text-white-50 small mb-4">Kartınızın bağlı olduğu banka tarafından telefonunuza gönderilen 6 haneli SMS onay kodunu giriniz.</p>
+                <div class="alert alert-info py-2 mb-4 d-inline-block">
+                    <small>Simüle SMS Kodu: <strong id="simulatedCode" class="fs-5"></strong></small>
+                </div>
+                <input type="text" id="smsCodeInput" class="form-control form-control-lg glass-input text-center mx-auto" style="width: 200px; letter-spacing: 5px;" placeholder="000000" maxlength="6">
+                <p id="smsError" class="text-danger small mt-2 d-none">Hatalı kod girdiniz, lütfen tekrar deneyin.</p>
+            </div>
+            <div class="modal-footer border-top border-secondary justify-content-center">
+                <button type="button" class="btn btn-secondary px-4" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-success px-4" id="verifySmsBtn">Doğrula ve Öde</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <style>
     .glass-card {
         background: rgba(30, 41, 59, 0.6);
@@ -125,6 +148,40 @@
 
     document.getElementById('cvv').addEventListener('input', function (e) {
         this.value = this.value.replace(/\D/g, ''); 
+    });
+
+    // 3D Secure Logic
+    const checkoutForm = document.getElementById('checkoutForm');
+    const secure3DModal = new bootstrap.Modal(document.getElementById('secure3DModal'));
+    let generatedCode = "";
+
+    checkoutForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        if(!checkoutForm.checkValidity()) {
+            checkoutForm.classList.add('was-validated');
+            return;
+        }
+
+        generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
+        document.getElementById('simulatedCode').innerText = generatedCode;
+        document.getElementById('smsCodeInput').value = "";
+        document.getElementById('smsError').classList.add('d-none');
+        
+        secure3DModal.show();
+    });
+
+    document.getElementById('verifySmsBtn').addEventListener('click', function() {
+        const inputCode = document.getElementById('smsCodeInput').value;
+        if(inputCode === generatedCode) {
+            this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> İşleniyor...';
+            this.disabled = true;
+            setTimeout(() => {
+                checkoutForm.submit();
+            }, 1000);
+        } else {
+            document.getElementById('smsError').classList.remove('d-none');
+        }
     });
 </script>
 {% endblock %}
