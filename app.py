@@ -9,12 +9,12 @@ import difflib
 import re
 import random
 import os
-from threading import Thread  # 502 Çökmesini Engelleyen Asenkron Kahraman
+from threading import Thread
 from dotenv import load_dotenv
 
 from flask_wtf.csrf import CSRFProtect
-from flask_mail import Mail, Message
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired
+import resend  # YENİ NESİL MAİL API
 
 load_dotenv()
 
@@ -23,14 +23,8 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "pasha_hotels_secret_2026")
 
 csrf = CSRFProtect(app)
 
-app.config['MAIL_SERVER'] = 'smtp.gmail.com'
-app.config['MAIL_PORT'] = 465
-app.config['MAIL_USE_TLS'] = False
-app.config['MAIL_USE_SSL'] = True
-app.config['MAIL_USERNAME'] = os.environ.get('EMAIL_USER')
-app.config['MAIL_PASSWORD'] = os.environ.get('EMAIL_PASS')
-app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('EMAIL_USER')
-mail = Mail(app)
+# RESEND API AYARI
+resend.api_key = os.environ.get("RESEND_API_KEY")
 
 token_serializer = URLSafeTimedSerializer(app.secret_key)
 
@@ -41,13 +35,19 @@ hotels_col = db['hotels']
 rooms_col = db['rooms']
 bookings_col = db['bookings']
 
-# --- ASENKRON MAİL GÖNDERİCİ ---
-def send_async_email(app, msg):
-    with app.app_context():
-        try:
-            mail.send(msg)
-        except Exception as e:
-            print(f"SMTP Engeli veya Hata: {str(e)}")
+# --- API TABANLI ASENKRON MAİL GÖNDERİCİ ---
+def send_resend_email_async(subject, html_content, to_email):
+    try:
+        params = {
+            "from": "36Otel <onboarding@resend.dev>", # Resend test göndericisi
+            "to": [to_email],
+            "subject": subject,
+            "html": html_content,
+        }
+        email_response = resend.Emails.send(params)
+        print(f"\n✅ RESEND BAŞARILI! Mail API üzerinden uçuruldu. ID: {email_response['id']}\n")
+    except Exception as e:
+        print(f"\n❌ RESEND HATASI: {str(e)}\n")
 
 # ==============================================================
 #                 ÇOKLU DİL (i18n) MOTORU
@@ -187,21 +187,18 @@ def forgot_password():
         if user:
             token = token_serializer.dumps(email, salt='password-reset-salt')
             reset_url = url_for('reset_password', token=token, _external=True)
-            msg = Message("36Otel - Şifre Sıfırlama Bağlantısı", recipients=[email])
-            msg.html = f"""
-            <h3>Merhaba {user['name']},</h3>
-            <p>Şifrenizi sıfırlamak için aşağıdaki bağlantıya tıklayın. Bu bağlantı 1 saat boyunca geçerlidir.</p>
-            <p><a href="{reset_url}" style="background-color:#c5a059; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Şifremi Sıfırla</a></p>
+            
+            subject = "36Otel - Şifre Sıfırlama Bağlantısı"
+            html_content = f"""
+            <div style="font-family: Arial, sans-serif; padding: 20px;">
+                <h3>Merhaba {user['name']},</h3>
+                <p>Şifrenizi sıfırlamak için aşağıdaki bağlantıya tıklayın. Bu bağlantı 1 saat boyunca geçerlidir.</p>
+                <p><a href="{reset_url}" style="background-color:#c5a059; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Şifremi Sıfırla</a></p>
+            </div>
             """
             
-            # ASENKRON MAİL GÖNDERİMİ (TIMEOUT ÖNLER)
-            Thread(target=send_async_email, args=(app, msg)).start()
-            
-            # KONSOLA LİNKİ YAZDIRIYORUZ Kİ RENDER ENGELLERSE KOPYALAYABİLESİN
-            print("\n" + "="*50)
-            print("DİKKAT! RENDER SMTP ENGELİ VARSA LİNK BURADA:")
-            print(reset_url)
-            print("="*50 + "\n")
+            # MAİLİ RESEND API ÜZERİNDEN ARKA PLANDA FIRLATIYORUZ
+            Thread(target=send_resend_email_async, args=(subject, html_content, email)).start()
 
         flash("Eğer e-posta adresiniz kayıtlıysa, sıfırlama bağlantısı gönderilmiştir.", "info")
         return redirect(url_for('login'))
@@ -482,26 +479,25 @@ def checkout(room_id):
         }
         db.bookings.insert_one(booking_doc)
         
-        # ASENKRON MAİL GÖNDERİMİ (TIMEOUT ÖNLER)
-        if app.config['MAIL_USERNAME']:
-            msg = Message(f"36Otel - {hotel['name']} Rezervasyon Onayı", recipients=[email])
-            msg.html = f"""
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px;">
-                <h2 style="color: #c5a059; text-align: center;">Rezervasyon Onaylandı!</h2>
-                <p>Sayın <b>{customer_name}</b>,</p>
-                <p><b>{hotel['name']}</b> otelindeki rezervasyonunuz başarıyla alınmıştır. İşlem detaylarınız aşağıdadır:</p>
-                <hr>
-                <ul style="list-style: none; padding: 0;">
-                    <li>🏨 <b>Oda Tipi:</b> {room['room_type']} (No: {room['room_number']})</li>
-                    <li>📅 <b>Giriş Tarihi:</b> {checkin}</li>
-                    <li>📅 <b>Çıkış Tarihi:</b> {checkout_date} ({days} Gece)</li>
-                    <li>💰 <b>Ödenen Tutar:</b> {total_price} TL</li>
-                </ul>
-                <hr>
-                <p style="text-align: center; color: #555;">Resmi barkodlu PDF e-biletinizi sisteme giriş yaparak <b>Rezervasyonlarım</b> sayfasından indirebilirsiniz.</p>
-            </div>
-            """
-            Thread(target=send_async_email, args=(app, msg)).start()
+        # RESEND API İLE E-POSTA GÖNDERİMİ
+        subject = f"36Otel - {hotel['name']} Rezervasyon Onayı"
+        html_content = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px;">
+            <h2 style="color: #c5a059; text-align: center;">Rezervasyon Onaylandı!</h2>
+            <p>Sayın <b>{customer_name}</b>,</p>
+            <p><b>{hotel['name']}</b> otelindeki rezervasyonunuz başarıyla alınmıştır. İşlem detaylarınız aşağıdadır:</p>
+            <hr>
+            <ul style="list-style: none; padding: 0;">
+                <li>🏨 <b>Oda Tipi:</b> {room['room_type']} (No: {room['room_number']})</li>
+                <li>📅 <b>Giriş Tarihi:</b> {checkin}</li>
+                <li>📅 <b>Çıkış Tarihi:</b> {checkout_date} ({days} Gece)</li>
+                <li>💰 <b>Ödenen Tutar:</b> {total_price} TL</li>
+            </ul>
+            <hr>
+            <p style="text-align: center; color: #555;">Resmi barkodlu PDF e-biletinizi sisteme giriş yaparak <b>Rezervasyonlarım</b> sayfasından indirebilirsiniz.</p>
+        </div>
+        """
+        Thread(target=send_resend_email_async, args=(subject, html_content, email)).start()
 
         flash(f"Ödeme Başarılı! Faturanız ve e-biletiniz {email} adresine gönderildi.", "success")
         return redirect(url_for('index'))
@@ -678,7 +674,7 @@ class HolidayBotManager:
 
 bot_manager = HolidayBotManager(db)
 
-@csrf.exempt # Bot dışarıdan JS ile (AJAX) istek attığı için CSRF'ten muaf tutulmalı
+@csrf.exempt 
 @app.route('/api/v1/chat', methods=['POST'])
 def api_chat():
     lang = request.cookies.get('lang', 'tr')
