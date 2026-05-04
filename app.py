@@ -39,7 +39,7 @@ bookings_col = db['bookings']
 def send_resend_email_async(subject, html_content, to_email):
     try:
         params = {
-            "from": "36Otel <onboarding@resend.dev>", # Resend test göndericisi
+            "from": "36Otel <info@sametdayioglu.com>",
             "to": [to_email],
             "subject": subject,
             "html": html_content,
