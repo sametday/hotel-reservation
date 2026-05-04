@@ -10,6 +10,9 @@
                         <h2 class="fw-bold mt-2 text-white">{{ t('login') }}</h2>
                     </div>
                     <form action="/login" method="POST">
+                        <!-- CSRF GÜVENLİK KALKANI -->
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        
                         <div class="mb-3">
                             <label class="form-label fw-bold small text-white-50">{{ t('email') }}</label>
                             <input type="email" name="email" class="form-control form-control-lg glass-input" placeholder="ornek@mail.com" required>
@@ -22,6 +25,12 @@
                             <i class="bi bi-box-arrow-in-right me-2"></i> {{ t('login_btn') }}
                         </button>
                     </form>
+                    
+                    <!-- ŞİFREMİ UNUTTUM LİNKİ -->
+                    <div class="text-center mt-3">
+                        <a href="/forgot-password" class="text-warning small text-decoration-none fw-bold"><i class="bi bi-unlock-fill me-1"></i>Şifremi Unuttum</a>
+                    </div>
+                    
                     <hr class="my-4 border-secondary">
                     <p class="text-center small text-white-50">
                         {{ t('no_account') }} <a href="/register" class="text-info fw-bold text-decoration-none border-bottom border-info pb-1">{{ t('register_now') }}</a>

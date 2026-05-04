@@ -11,10 +11,29 @@ import random
 import os
 from dotenv import load_dotenv
 
+# YENİ EKLENEN GÜVENLİK VE MAİL KÜTÜPHANELERİ
+from flask_wtf.csrf import CSRFProtect
+from flask_mail import Mail, Message
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired
+
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "pasha_hotels_secret_2026") 
+
+# GÜVENLİK (CSRF) VE MAİL (SMTP) AYARLARI
+csrf = CSRFProtect(app)
+
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = os.environ.get('EMAIL_USER')
+app.config['MAIL_PASSWORD'] = os.environ.get('EMAIL_PASS')
+app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('EMAIL_USER')
+mail = Mail(app)
+
+# Şifre sıfırlama token'ları için kriptolayıcı
+token_serializer = URLSafeTimedSerializer(app.secret_key)
 
 # Veritabanı Bağlantısı
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
@@ -89,7 +108,9 @@ def set_lang(lang):
     resp.set_cookie('lang', lang, max_age=60*60*24*30) 
     return resp
 
-# Flask-Login Ayarları
+# ==============================================================
+#                 GİRİŞ VE KAYIT İŞLEMLERİ
+# ==============================================================
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login' 
@@ -122,7 +143,6 @@ def register():
             
         hashed_pw = generate_password_hash(password, method='pbkdf2:sha256')
         db.users.insert_one({"name": name, "email": email, "password": hashed_pw})
-        
         flash("Kaydınız başarıyla oluşturuldu, giriş yapabilirsiniz.", "success")
         return redirect(url_for('login'))
     return render_template('register.html')
@@ -151,7 +171,57 @@ def logout():
     return redirect(url_for('index'))
 
 # ==============================================================
-#                 2. ADMİN ROTALARI
+#                 ŞİFRE SIFIRLAMA (YENİ)
+# ==============================================================
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'POST':
+        email = request.form.get('email').lower().strip()
+        user = db.users.find_one({"email": email})
+        if user:
+            # Token oluştur ve Mail gönder
+            token = token_serializer.dumps(email, salt='password-reset-salt')
+            reset_url = url_for('reset_password', token=token, _external=True)
+            msg = Message("36Otel - Şifre Sıfırlama Bağlantısı", recipients=[email])
+            msg.html = f"""
+            <h3>Merhaba {user['name']},</h3>
+            <p>Şifrenizi sıfırlamak için aşağıdaki bağlantıya tıklayın. Bu bağlantı 1 saat boyunca geçerlidir.</p>
+            <p><a href="{reset_url}" style="background-color:#c5a059; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Şifremi Sıfırla</a></p>
+            <p>Eğer bu isteği siz yapmadıysanız lütfen bu maili dikkate almayın.</p>
+            """
+            try:
+                mail.send(msg)
+            except Exception as e:
+                print("Mail hatası:", str(e))
+        
+        # Güvenlik gereği her halükarda aynı mesajı veriyoruz ki sistemde hangi maillerin olduğu taramasınlar.
+        flash("Eğer e-posta adresiniz sistemimizde kayıtlıysa, sıfırlama bağlantısı gönderilmiştir.", "info")
+        return redirect(url_for('login'))
+    return render_template('forgot_password.html')
+
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    try:
+        # Token süresi 1 saat (3600 saniye)
+        email = token_serializer.loads(token, salt='password-reset-salt', max_age=3600)
+    except SignatureExpired:
+        flash("Şifre sıfırlama bağlantısının süresi dolmuş. Lütfen tekrar istek gönderin.", "danger")
+        return redirect(url_for('forgot_password'))
+    except Exception:
+        flash("Geçersiz veya bozuk bir bağlantı kullandınız.", "danger")
+        return redirect(url_for('forgot_password'))
+
+    if request.method == 'POST':
+        new_password = request.form.get('password')
+        hashed_pw = generate_password_hash(new_password, method='pbkdf2:sha256')
+        db.users.update_one({"email": email}, {"$set": {"password": hashed_pw}})
+        flash("Şifreniz başarıyla güncellendi! Yeni şifrenizle giriş yapabilirsiniz.", "success")
+        return redirect(url_for('login'))
+    
+    return render_template('reset_password.html', token=token)
+
+# ==============================================================
+#                 ADMİN ROTALARI
 # ==============================================================
 def admin_required(f):
     @wraps(f)
@@ -165,7 +235,6 @@ def admin_required(f):
 @login_required
 @admin_required
 def admin_dashboard():
-    # Güvenli Tutar Çevirme Fonksiyonu (Crash Önleyici)
     def safe_float(val):
         try:
             return float(str(val).replace(',', '').replace(' TL', '').strip() or 0)
@@ -203,22 +272,15 @@ def admin_dashboard():
     for r in all_rooms:
         r['hotel_name'] = hotel_dict.get(r.get('hotel_id'), "Bağlantısız Oda")
 
-    return render_template('admin/dashboard.html', 
-                           bookings=all_bookings, 
-                           rooms=all_rooms, 
-                           hotels=all_hotels, 
-                           revenue=total_revenue)
+    return render_template('admin/dashboard.html', bookings=all_bookings, rooms=all_rooms, hotels=all_hotels, revenue=total_revenue)
 
 @app.route('/admin/add-hotel', methods=['POST'])
 @login_required
 @admin_required
 def add_hotel():
     new_hotel = {
-        "name": request.form.get('name'),
-        "city": request.form.get('city'),
-        "district": request.form.get('district'),
-        "stars": int(request.form.get('stars')),
-        "description": request.form.get('description'),
+        "name": request.form.get('name'), "city": request.form.get('city'), "district": request.form.get('district'),
+        "stars": int(request.form.get('stars')), "description": request.form.get('description'),
         "image_url": request.form.get('image_url') or "https://images.unsplash.com/photo-1566073771259-6a8506099945"
     }
     db.hotels.insert_one(new_hotel)
@@ -238,13 +300,9 @@ def delete_hotel(hotel_id):
 @login_required
 @admin_required
 def add_room():
-    hotel_id = request.form.get('hotel_id')
     new_room = {
-        "hotel_id": ObjectId(hotel_id), 
-        "room_number": request.form.get('room_number'),
-        "room_type": request.form.get('room_type'),
-        "price": float(request.form.get('price')),
-        "is_available": True
+        "hotel_id": ObjectId(request.form.get('hotel_id')), "room_number": request.form.get('room_number'),
+        "room_type": request.form.get('room_type'), "price": float(request.form.get('price')), "is_available": True
     }
     db.rooms.insert_one(new_room)
     flash("Yeni oda başarıyla eklendi!", "success")
@@ -270,27 +328,19 @@ def admin_add_booking():
     d2 = datetime.strptime(check_out, "%Y-%m-%d")
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     
-    if d1 < today:
-        flash("Hata: Geçmiş bir tarihe rezervasyon oluşturulamaz!", "danger")
-        return redirect(url_for('admin_dashboard'))
-    if d1 >= d2:
-        flash("Hata: Çıkış tarihi, giriş tarihinden sonra olmalıdır!", "danger")
+    if d1 < today or d1 >= d2:
+        flash("Hata: Geçersiz tarih aralığı!", "danger")
         return redirect(url_for('admin_dashboard'))
 
     room = db.rooms.find_one({"_id": ObjectId(room_id)})
     nights = max((d2 - d1).days, 1)
     
-    new_booking = {
-        "customer_name": request.form.get('customer_name'),
-        "email": request.form.get('email', '-'),
-        "phone": request.form.get('phone', '-'),
-        "room_id": ObjectId(room_id),
-        "check_in": check_in,
-        "check_out": check_out,
-        "total_price": nights * room['price'],
+    db.bookings.insert_one({
+        "customer_name": request.form.get('customer_name'), "email": request.form.get('email', '-'),
+        "phone": request.form.get('phone', '-'), "room_id": ObjectId(room_id),
+        "check_in": check_in, "check_out": check_out, "total_price": nights * room['price'],
         "created_at": datetime.now()
-    }
-    db.bookings.insert_one(new_booking)
+    })
     flash("Manuel rezervasyon eklendi!", "success")
     return redirect(url_for('admin_dashboard'))
 
@@ -310,14 +360,11 @@ def update_room(room_id):
     if new_price:
         db.rooms.update_one({"_id": ObjectId(room_id)}, {"$set": {"price": float(new_price)}})
         flash("Oda fiyatı başarıyla güncellendi!", "success")
-    else:
-        flash("Geçersiz fiyat girdiniz.", "danger")
     return redirect(url_for('admin_dashboard'))
 
 # ==============================================================
-#                 3. MÜŞTERİ (VİTRİN) ROTALARI
+#                 MÜŞTERİ (VİTRİN) ROTALARI
 # ==============================================================
-
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -404,34 +451,64 @@ def search():
 def booking_page(room_id):
     room = rooms_col.find_one({"_id": ObjectId(room_id)})
     hotel = hotels_col.find_one({"_id": room['hotel_id']}) if room else None
-    
     checkin, checkout = request.args.get('checkin'), request.args.get('checkout')
     d1, d2 = datetime.strptime(checkin, "%Y-%m-%d"), datetime.strptime(checkout, "%Y-%m-%d")
     nights = max((d2 - d1).days, 1)
-    
     return render_template('booking.html', room=room, hotel=hotel, checkin=checkin, checkout=checkout, nights=nights, total=nights * room['price'])
 
-@app.route('/confirm_booking/<room_id>', methods=['POST'])
-@login_required
-def confirm_booking(room_id):
-    customer_name = request.form.get('fullname')
-    checkin = request.form.get('checkin') or request.args.get('checkin')
-    checkout = request.form.get('checkout') or request.args.get('checkout')
-    total_price = request.form.get('total_price') or request.args.get('total_price')
+@app.route('/checkout/<room_id>', methods=['GET', 'POST'])
+def checkout(room_id):
+    room = db.rooms.find_one({"_id": ObjectId(room_id)})
+    hotel = db.hotels.find_one({"_id": room['hotel_id']})
+    checkin = request.args.get('checkin')
+    checkout_date = request.args.get('checkout')
+    d1 = datetime.strptime(checkin, '%Y-%m-%d')
+    d2 = datetime.strptime(checkout_date, '%Y-%m-%d')
+    days = (d2 - d1).days
+    total_price = days * room['price']
 
-    booking_doc = {
-        "customer_name": customer_name,
-        "email": current_user.email, 
-        "phone": request.form.get('phone'),
-        "room_id": ObjectId(room_id),
-        "check_in": checkin,
-        "check_out": checkout,
-        "total_price": total_price,
-        "created_at": datetime.now()
-    }
-    
-    db.bookings.insert_one(booking_doc)
-    return render_template('success.html', name=customer_name)
+    if request.method == 'POST':
+        customer_name = request.form.get('customer_name')
+        email = current_user.email if current_user.is_authenticated else request.form.get('email')
+        phone = request.form.get('phone')
+
+        booking_doc = {
+            "customer_name": customer_name, "email": email, "phone": phone,
+            "hotel_name": hotel['name'], "room_id": room['_id'],
+            "room_info": {"room_type": room['room_type'], "room_number": room['room_number']},
+            "check_in": checkin, "check_out": checkout_date,
+            "total_price": total_price, "created_at": datetime.now()
+        }
+        db.bookings.insert_one(booking_doc)
+        
+        # GERÇEK MAİL GÖNDERİMİ (SİSTEM ŞAHLANIYOR)
+        if app.config['MAIL_USERNAME']:
+            msg = Message(f"36Otel - {hotel['name']} Rezervasyon Onayı", recipients=[email])
+            msg.html = f"""
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px;">
+                <h2 style="color: #c5a059; text-align: center;">Rezervasyon Onaylandı!</h2>
+                <p>Sayın <b>{customer_name}</b>,</p>
+                <p><b>{hotel['name']}</b> otelindeki rezervasyonunuz başarıyla alınmıştır. İşlem detaylarınız aşağıdadır:</p>
+                <hr>
+                <ul style="list-style: none; padding: 0;">
+                    <li>🏨 <b>Oda Tipi:</b> {room['room_type']} (No: {room['room_number']})</li>
+                    <li>📅 <b>Giriş Tarihi:</b> {checkin}</li>
+                    <li>📅 <b>Çıkış Tarihi:</b> {checkout_date} ({days} Gece)</li>
+                    <li>💰 <b>Ödenen Tutar:</b> {total_price} TL</li>
+                </ul>
+                <hr>
+                <p style="text-align: center; color: #555;">Resmi barkodlu PDF e-biletinizi sisteme giriş yaparak <b>Rezervasyonlarım</b> sayfasından indirebilirsiniz.</p>
+            </div>
+            """
+            try:
+                mail.send(msg)
+            except Exception as e:
+                print("HATA: E-posta gönderilemedi. Gmail ayarlarını kontrol et.", e)
+
+        flash(f"Ödeme Başarılı! Faturanız ve e-biletiniz {email} adresine gönderildi.", "success")
+        return redirect(url_for('index'))
+
+    return render_template('checkout.html', room=room, hotel=hotel, checkin=checkin, checkout=checkout_date, days=days, total_price=total_price)
 
 @app.route('/my-bookings')
 @login_required
@@ -468,42 +545,9 @@ def cancel_booking(booking_id):
         flash("İptal işlemi başarısız.", "danger")
     return redirect(url_for('my_bookings'))
 
-@app.route('/checkout/<room_id>', methods=['GET', 'POST'])
-def checkout(room_id):
-    room = db.rooms.find_one({"_id": ObjectId(room_id)})
-    hotel = db.hotels.find_one({"_id": room['hotel_id']})
-
-    checkin = request.args.get('checkin')
-    checkout_date = request.args.get('checkout')
-
-    d1 = datetime.strptime(checkin, '%Y-%m-%d')
-    d2 = datetime.strptime(checkout_date, '%Y-%m-%d')
-    days = (d2 - d1).days
-    total_price = days * room['price']
-
-    if request.method == 'POST':
-        customer_name = request.form.get('customer_name')
-        email = current_user.email if current_user.is_authenticated else request.form.get('email')
-        phone = request.form.get('phone')
-
-        booking_doc = {
-            "customer_name": customer_name, "email": email, "phone": phone,
-            "hotel_name": hotel['name'], "room_id": room['_id'],
-            "room_info": {"room_type": room['room_type'], "room_number": room['room_number']},
-            "check_in": checkin, "check_out": checkout_date,
-            "total_price": total_price, "created_at": datetime.now()
-        }
-        db.bookings.insert_one(booking_doc)
-
-        flash(f"Ödeme Başarılı! Rezervasyon bilgileriniz {email} adresine gönderildi.", "success")
-        return redirect(url_for('index'))
-
-    return render_template('checkout.html', room=room, hotel=hotel, checkin=checkin, checkout=checkout_date, days=days, total_price=total_price)
-
 # ==============================================================
-#                 4. REST API ROTALARI
+#                 4. REST API ROTALARI (CSRF'den Muaf)
 # ==============================================================
-
 def serialize_doc(doc):
     if not doc: return None
     for key, value in doc.items():
@@ -542,9 +586,7 @@ def api_get_hotels_by_city(city):
 # ==============================================================
 #                 5. STATE-MACHINE OOP CHATBOT
 # ==============================================================
-
 class HolidayBotManager:
-    """Spagetti if-else bloklarını çözen temiz, state-machine tabanlı Chatbot Sınıfı"""
     def __init__(self, db_conn):
         self.db = db_conn
         self.city_aliases = {
@@ -561,8 +603,6 @@ class HolidayBotManager:
                 "pool": ["havuz", "deniz", "sahil", "plaj", "yüzme", "kum", "aqua", "su", "termal", "kaplıca"],
                 "family": ["aile", "çocuk", "bebek", "geniş", "kalabalık", "büyük"],
                 "romantic": ["balayı", "romantik", "sevgili", "eş", "çift", "aşk"],
-                "food": ["kahvaltı", "yemek", "her şey", "büfe", "restoran"],
-                "my_bookings": ["rezervasyonum", "rezervasyonlarım", "bilet", "sipariş", "biletlerim"],
                 "auth": ["giriş yap", "üye ol", "kayıt ol", "hesabım", "giriş"]
             }
         return {
@@ -571,28 +611,13 @@ class HolidayBotManager:
             "pool": ["pool", "sea", "beach", "swim", "sand", "aqua", "water", "thermal"],
             "family": ["family", "child", "children", "baby", "large", "big"],
             "romantic": ["honeymoon", "romantic", "couple", "wife", "husband", "love"],
-            "my_bookings": ["my bookings", "my reservation", "my ticket", "my tickets"],
             "auth": ["login", "sign in", "register", "sign up", "my account"]
-        }
-
-    def get_chitchat(self, lang):
-        if lang == 'tr':
-            return {
-                "nasılsın": "Teşekkür ederim, harikayım! Size en iyi tatili bulmak için buradayım.",
-                "kimsin": "Ben 36Otel'in akıllı tatil asistanıyım.",
-                "teşekkür": "Rica ederim! Size yardımcı olabildiysem ne mutlu bana."
-            }
-        return {
-            "how are you": "Thank you, I'm doing great! I'm here to find the best vacation for you.",
-            "who are you": "I'm 36Otel's smart Holiday Assistant.",
-            "thank": "You're welcome! I'm glad I could help."
         }
 
     def extract_city(self, text):
         words = text.split()
         valid_cities = self.db.hotels.distinct("city")
         valid_lower = {c.lower(): c for c in valid_cities}
-
         for w in words:
             if w in self.city_aliases and self.city_aliases[w] in valid_cities: return self.city_aliases[w]
         for c_lower, c_orig in valid_lower.items():
@@ -603,42 +628,26 @@ class HolidayBotManager:
                 if matches: return valid_lower[matches[0]]
         return None
 
-    def process_booking_confirmation(self, text, lang, context, user):
-        yes_words = ["evet", "olur", "yap", "onaylıyorum", "tamam"] if lang == 'tr' else ["yes", "ok", "confirm"]
-        no_words = ["hayır", "istemiyorum", "vazgeç"] if lang == 'tr' else ["no", "cancel"]
-
-        if any(w in text for w in yes_words):
-            if not user.is_authenticated:
-                return ("Hızlı rezervasyon için lütfen sayfadan <b>Giriş Yapın</b>." if lang == 'tr' else "Please <b>Login</b> for quick booking.")
-            
-            checkin = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
-            checkout = (datetime.now() + timedelta(days=10)).strftime("%Y-%m-%d")
-            
-            self.db.bookings.insert_one({
-                "customer_name": user.name, "email": user.email, "phone": "Chatbot Hızlı İşlem",
-                "room_id": ObjectId(context.get('proposed_room_id')),
-                "check_in": checkin, "check_out": checkout,
-                "total_price": context.get('proposed_price', 0), "created_at": datetime.now()
-            })
-            
-            context['state'] = 'browsing'
-            context['city'] = None
-            return f"🎉 <b>İşlem Başarılı!</b><br>{context.get('proposed_hotel_name')} için rezervasyonunuz tamamlandı." if lang == 'tr' else "🎉 <b>Success!</b> Booking completed."
-
-        elif any(w in text for w in no_words):
-            context['state'] = 'browsing'
-            return "İşlemi iptal ettim. Nereye bakalım?" if lang == 'tr' else "Canceled. Where else?"
-        return "Lütfen 'Evet' veya 'Hayır' yazın." if lang == 'tr' else "Please say 'Yes' or 'No'."
-
     def respond(self, msg, lang, user, context):
         text = re.sub(r'[^\w\s]', ' ', msg.lower())
 
-        # 1. Booking Confirmation State
         if context.get('state') == 'offering_booking':
-            reply = self.process_booking_confirmation(text, lang, context, user)
-            return reply, context
+            yes_words = ["evet", "olur", "yap", "onaylıyorum", "tamam"] if lang == 'tr' else ["yes", "ok", "confirm"]
+            if any(w in text for w in yes_words):
+                if not user.is_authenticated: return ("Hızlı rezervasyon için lütfen sayfadan <b>Giriş Yapın</b>." if lang == 'tr' else "Please <b>Login</b> for quick booking."), context
+                self.db.bookings.insert_one({
+                    "customer_name": user.name, "email": user.email, "phone": "Chatbot Hızlı İşlem",
+                    "room_id": ObjectId(context.get('proposed_room_id')),
+                    "check_in": (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d"), 
+                    "check_out": (datetime.now() + timedelta(days=10)).strftime("%Y-%m-%d"),
+                    "total_price": context.get('proposed_price', 0), "created_at": datetime.now()
+                })
+                context['state'] = 'browsing'; context['city'] = None
+                return "🎉 <b>İşlem Başarılı!</b><br>Rezervasyonunuz tamamlandı." if lang == 'tr' else "🎉 <b>Success!</b> Booking completed.", context
+            else:
+                context['state'] = 'browsing'
+                return "İşlemi iptal ettim. Nereye bakalım?" if lang == 'tr' else "Canceled. Where else?", context
 
-        # 2. Extract Intent and Entities
         city = self.extract_city(text)
         if city: context['city'] = city
 
@@ -646,77 +655,39 @@ class HolidayBotManager:
         for i in detected_intents:
             if i not in context['intents']: context['intents'].append(i)
 
-        # 3. Handle Direct Commands (Auth / Bookings)
         if "auth" in detected_intents:
-            return "<a href='/login' class='btn btn-warning w-100 fw-bold'>Giriş Yap / Üye Ol</a>" if lang == 'tr' else "<a href='/login' class='btn btn-warning w-100'>Login / Register</a>", context
+            return "<a href='/login' class='btn btn-warning w-100 fw-bold'>Giriş Yap / Üye Ol</a>", context
         
-        if "my_bookings" in detected_intents:
-            if not user.is_authenticated: return "Lütfen Giriş Yapın." if lang == 'tr' else "Please Login.", context
-            bookings = list(self.db.bookings.find({"email": user.email}))
-            if not bookings: return "Aktif rezervasyonunuz yok." if lang == 'tr' else "No active bookings.", context
-            b = bookings[-1]
-            return f"En son rezervasyonunuz: <b>{b['check_in']}</b> - <b>{b['check_out']}</b>." if lang == 'tr' else f"Latest booking: <b>{b['check_in']}</b> - <b>{b['check_out']}</b>.", context
-
-        # 4. State Machine: Offer a Hotel if City is known
         if context['city']:
             hotel_count = self.db.hotels.count_documents({"city": context['city']})
             if hotel_count == 0:
-                bad_city = context['city']
                 context['city'] = None
-                return f"Maalesef {bad_city} bölgesinde otel kalmamış." if lang == 'tr' else f"No hotels in {bad_city}.", context
+                return "Maalesef o bölgede otel kalmamış." if lang == 'tr' else "No hotels there.", context
 
             if not context['intents']:
-                return f"{context['city']} şehrinde {hotel_count} otelimiz var. Konseptiniz nedir? (Lüks, Ucuz vs.)" if lang == 'tr' else f"We have {hotel_count} hotels in {context['city']}. What concept?", context
+                return f"{context['city']} şehrinde {hotel_count} otelimiz var. Konseptiniz nedir?" if lang == 'tr' else f"We have {hotel_count} hotels in {context['city']}. What concept?", context
             else:
                 city_hotels = list(self.db.hotels.find({"city": context['city']}, {"_id": 1}))
                 cheapest_room = self.db.rooms.find_one({"hotel_id": {"$in": [h['_id'] for h in city_hotels]}}, sort=[("price", 1)])
-                
                 if cheapest_room:
                     hotel = self.db.hotels.find_one({"_id": cheapest_room['hotel_id']})
                     context['proposed_room_id'] = str(cheapest_room['_id'])
-                    context['proposed_hotel_name'] = hotel['name']
                     context['proposed_price'] = cheapest_room['price'] * 3
                     context['state'] = 'offering_booking'
-                    return f"Mükemmel! {hotel['name']} otelini buldum. Fiyat: {context['proposed_price']} TL. Hemen hızlı rezervasyon yapayım mı? (Evet/Hayır)" if lang == 'tr' else f"Found {hotel['name']}. Confirm booking? (Yes/No)", context
-                else:
-                    context['state'] = 'browsing'
-                    context['city'] = None
-                    return f"{context['city']} bölgesinde size uygun {hotel_count} otel buldum. Butona tıklayın." if lang == 'tr' else "Found hotels for you.", context
+                    return f"Mükemmel! {hotel['name']} otelini buldum. Hemen hızlı rezervasyon yapayım mı? (Evet/Hayır)", context
 
-        # 5. Fallback & Chit-Chat
-        chitchat = next((v for k, v in self.get_chitchat(lang).items() if k in text), None)
-        if chitchat: return chitchat, context
+        return "Merhaba! Tatil hayalinizi gerçekleştirmek için buradayım. Nereye gitmek istersiniz?", context
 
-        if context['intents']:
-            return "Harika! Peki hangi bölgeye veya şehre gitmek istersiniz?" if lang == 'tr' else "Great! Which city?", context
-
-        greet_words = ["merhaba", "selam", "hey", "iyi"] if lang == 'tr' else ["hello", "hi", "hey"]
-        if any(w in text for w in greet_words):
-            return "Merhaba! Tatil hayalinizi gerçekleştirmek için buradayım. Nereye gitmek istersiniz?" if lang == 'tr' else "Hello! Where to?", context
-
-        return "Söylediğinizi anlayamadım. Sadece tatil ve şehir terimlerini algılayabiliyorum." if lang == 'tr' else "I only understand travel and city terms.", context
-
-# Initialize Bot
 bot_manager = HolidayBotManager(db)
 
+@csrf.exempt # Bot dışarıdan JS ile (AJAX) istek attığı için CSRF'ten muaf tutulmalı
 @app.route('/api/v1/chat', methods=['POST'])
 def api_chat():
     lang = request.cookies.get('lang', 'tr')
     msg = request.get_json().get('message', '').lower()
     
-    reset_words = ["baştan", "iptal", "sıfırla"] if lang == 'tr' else ["reset", "cancel", "clear"]
-    if any(w in msg for w in reset_words):
-        session['chat_context'] = {"city": None, "intents": [], "state": "browsing"}
-        return jsonify({"reply": "Sıfırladım. Nereye gitmek istersiniz?" if lang == 'tr' else "Reset. Where to?"})
-        
-    if 'chat_context' not in session:
-        session['chat_context'] = {"city": None, "intents": [], "state": "browsing"}
-        
-    context = session['chat_context']
-    if 'state' not in context: context['state'] = "browsing"
-
-    # OOP Bot'a yönlendiriyoruz (Bütün çöp kod buradan temizlendi!)
-    reply_text, updated_context = bot_manager.respond(msg, lang, current_user, context)
+    if 'chat_context' not in session: session['chat_context'] = {"city": None, "intents": [], "state": "browsing"}
+    reply_text, updated_context = bot_manager.respond(msg, lang, current_user, session['chat_context'])
     
     session['chat_context'] = updated_context
     session.modified = True

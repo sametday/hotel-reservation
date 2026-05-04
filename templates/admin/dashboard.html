@@ -5,8 +5,8 @@
 
 <style>
     #adminTab .nav-link {
-        color: #495057 !important; /* Pasif sekmeler koyu gri */
-        background-color: #f8f9fa; /* Hafif gri arka plan */
+        color: #495057 !important; 
+        background-color: #f8f9fa; 
         border: 1px solid #dee2e6;
         transition: all 0.2s ease-in-out;
     }
@@ -14,15 +14,23 @@
         background-color: #e9ecef;
     }
     #adminTab .nav-link.active {
-        color: #ffffff !important; /* Aktif sekme metni beyaz */
-        background-color: #0d6efd !important; /* Aktif sekme arka planı mavi */
+        color: #ffffff !important; 
+        background-color: #0d6efd !important; 
         border-color: #0d6efd;
+    }
+    
+    /* GÖRÜNMEYEN YAZILAR İÇİN FIX: Modalların içi zorunlu koyu renk olacak */
+    .modal-content {
+        color: #212529 !important; 
+    }
+    .modal-content .text-muted {
+        color: #6c757d !important;
     }
 </style>
 
 <div class="container py-5 mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="fw-bold text-dark"><i class="bi bi-shield-lock-fill text-danger me-2"></i>Yönetim Paneli</h2>
+        <h2 class="fw-bold text-white"><i class="bi bi-shield-lock-fill text-danger me-2"></i>Yönetim Paneli</h2>
     </div>
 
     <div class="row g-3 mb-5">
@@ -64,7 +72,7 @@
         </li>
     </ul>
 
-    <div class="tab-content bg-white p-4 rounded-4 shadow-sm border">
+    <div class="tab-content bg-white p-4 rounded-4 shadow-sm border text-dark">
         
         <div class="tab-pane fade show active" id="bookingsTab">
             <div class="d-flex justify-content-between align-items-center mb-4">
@@ -100,6 +108,7 @@
                             <td class="fw-bold text-success">{{ b.total_price }} TL</td>
                             <td>
                                 <form action="{{ url_for('admin_delete_booking', booking_id=b._id) }}" method="POST" onsubmit="return confirm('İptal etmek istediğinize emin misiniz?');">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
                                 </form>
                             </td>
@@ -135,6 +144,7 @@
                             <td><span class="text-warning fw-bold">{{ hotel.stars }} <i class="bi bi-star-fill"></i></span></td>
                             <td>
                                 <form action="{{ url_for('delete_hotel', hotel_id=hotel._id) }}" method="POST" onsubmit="return confirm('DİKKAT! Bu oteli sildiğinizde, otele bağlı tüm odalar da silinecektir. Emin misiniz?');">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i> Sil</button>
                                 </form>
                             </td>
@@ -182,22 +192,24 @@
                                     </button>
 
                                     <form action="{{ url_for('delete_room', room_id=room._id) }}" method="POST" onsubmit="return confirm('Silmek istediğinize emin misiniz?');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
                                     </form>
                                 </div>
 
                                 <div class="modal fade text-start" id="updateRoomModal{{ room._id }}" tabindex="-1">
                                     <div class="modal-dialog modal-dialog-centered">
-                                        <div class="modal-content rounded-4 border-0 shadow">
+                                        <div class="modal-content text-dark rounded-4 border-0 shadow">
                                             <div class="modal-header border-bottom-0 pb-0">
-                                                <h5 class="modal-title fw-bold">Fiyat Güncelle: Oda {{ room.room_number }}</h5>
+                                                <h5 class="modal-title fw-bold text-dark">Fiyat Güncelle: Oda {{ room.room_number }}</h5>
                                                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                                             </div>
                                             <form action="/admin/update-room/{{ room._id }}" method="POST">
-                                                <div class="modal-body p-4">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <div class="modal-body p-4 text-dark">
                                                     <p class="text-muted small mb-3">Mevcut Fiyat: <span class="fw-bold text-dark">{{ room.price }} TL</span></p>
                                                     <div class="mb-3">
-                                                        <label class="form-label small fw-bold">Yeni Fiyat (TL)</label>
+                                                        <label class="form-label small fw-bold text-dark">Yeni Fiyat (TL)</label>
                                                         <input type="number" name="price" class="form-control" value="{{ room.price }}" required>
                                                     </div>
                                                 </div>
@@ -222,32 +234,33 @@
 
 <div class="modal fade" id="addHotelModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered modal-lg">
-        <div class="modal-content rounded-4 border-0 shadow">
+        <div class="modal-content text-dark rounded-4 border-0 shadow">
             <div class="modal-header border-bottom-0 pb-0">
-                <h5 class="modal-title fw-bold">Sisteme Yeni Otel Ekle</h5>
+                <h5 class="modal-title fw-bold text-dark">Sisteme Yeni Otel Ekle</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body p-4">
+            <div class="modal-body p-4 text-dark">
                 <form action="/admin/add-hotel" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="row g-3">
                         <div class="col-md-12">
-                            <label class="form-label small fw-bold">Otel Adı</label>
+                            <label class="form-label small fw-bold text-dark">Otel Adı</label>
                             <input type="text" name="name" class="form-control" placeholder="Örn: Pasha Resort" required>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label small fw-bold">Bulunduğu İl</label>
+                            <label class="form-label small fw-bold text-dark">Bulunduğu İl</label>
                             <select name="city" id="adminCity" class="form-select" required>
                                 <option value="">İl Seçiniz</option>
                             </select>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label small fw-bold">İlçe</label>
+                            <label class="form-label small fw-bold text-dark">İlçe</label>
                             <select name="district" id="adminDistrict" class="form-select" required>
                                 <option value="">Önce İl Seçiniz</option>
                             </select>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label small fw-bold">Yıldız Sayısı</label>
+                            <label class="form-label small fw-bold text-dark">Yıldız Sayısı</label>
                             <select name="stars" class="form-select" required>
                                 <option value="5">5 Yıldızlı</option>
                                 <option value="4">4 Yıldızlı</option>
@@ -255,7 +268,7 @@
                             </select>
                         </div>
                         <div class="col-12">
-                            <label class="form-label small fw-bold">Açıklama / Konsept</label>
+                            <label class="form-label small fw-bold text-dark">Açıklama / Konsept</label>
                             <textarea name="description" class="form-control" rows="2" placeholder="Otel hakkında kısa bir tanıtım yazısı..." required></textarea>
                         </div>
                         <div class="col-12">
@@ -263,7 +276,7 @@
                             <input type="url" name="image_url" class="form-control" placeholder="https://...">
                         </div>
                         <div class="col-12 mt-4">
-                            <button type="submit" class="btn btn-info w-100 fw-bold py-2">Oteli Sisteme Kaydet</button>
+                            <button type="submit" class="btn btn-info w-100 fw-bold py-2 text-dark">Oteli Sisteme Kaydet</button>
                         </div>
                     </div>
                 </form>
@@ -274,13 +287,14 @@
 
 <div class="modal fade" id="addRoomModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content rounded-4 border-0 shadow">
+        <div class="modal-content text-dark rounded-4 border-0 shadow">
             <div class="modal-header border-bottom-0 pb-0">
-                <h5 class="modal-title fw-bold">Yeni Oda Ekle</h5>
+                <h5 class="modal-title fw-bold text-dark">Yeni Oda Ekle</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body p-4">
+            <div class="modal-body p-4 text-dark">
                 <form action="/admin/add-room" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="row g-3">
                         <div class="col-12">
                             <label class="form-label small fw-bold text-primary">Hangi Otele Eklenecek?</label>
@@ -295,15 +309,15 @@
                             {% endif %}
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label small fw-bold text-muted">Oda Numarası</label>
+                            <label class="form-label small fw-bold text-dark">Oda Numarası</label>
                             <input type="text" name="room_number" class="form-control" required>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label small fw-bold text-muted">Gecelik Fiyat (TL)</label>
+                            <label class="form-label small fw-bold text-dark">Gecelik Fiyat (TL)</label>
                             <input type="number" name="price" class="form-control" required>
                         </div>
                         <div class="col-12">
-                            <label class="form-label small fw-bold text-muted">Oda Tipi</label>
+                            <label class="form-label small fw-bold text-dark">Oda Tipi</label>
                             <select name="room_type" class="form-select" required>
                                 <option value="Standart Oda">Standart Oda</option>
                                 <option value="Deluxe Oda">Deluxe Oda</option>
@@ -323,20 +337,21 @@
 
 <div class="modal fade" id="addBookingModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered modal-lg">
-        <div class="modal-content rounded-4 border-0 shadow">
+        <div class="modal-content text-dark rounded-4 border-0 shadow">
             <div class="modal-header border-bottom-0 pb-0">
-                <h5 class="modal-title fw-bold">Manuel Rezervasyon</h5>
+                <h5 class="modal-title fw-bold text-dark">Manuel Rezervasyon</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body p-4">
+            <div class="modal-body p-4 text-dark">
                 <form action="/admin/add-booking" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="row g-3">
-                        <div class="col-md-4"><label class="form-label small fw-bold">Müşteri Adı</label><input type="text" name="customer_name" class="form-control" required></div>
-                        <div class="col-md-4"><label class="form-label small fw-bold">Telefon</label><input type="tel" name="phone" class="form-control"></div>
-                        <div class="col-md-4"><label class="form-label small fw-bold">E-posta</label><input type="email" name="email" class="form-control"></div>
+                        <div class="col-md-4"><label class="form-label small fw-bold text-dark">Müşteri Adı</label><input type="text" name="customer_name" class="form-control" required></div>
+                        <div class="col-md-4"><label class="form-label small fw-bold text-dark">Telefon</label><input type="tel" name="phone" class="form-control"></div>
+                        <div class="col-md-4"><label class="form-label small fw-bold text-dark">E-posta</label><input type="email" name="email" class="form-control"></div>
                         
                         <div class="col-md-4">
-                            <label class="form-label small fw-bold">Şehir Seçimi</label>
+                            <label class="form-label small fw-bold text-dark">Şehir Seçimi</label>
                             <select id="bookingCitySelect" class="form-select" required>
                                 <option value="">Şehir Seçiniz...</option>
                                 {% set cities = [] %}
@@ -352,20 +367,20 @@
                         </div>
 
                         <div class="col-md-4">
-                            <label class="form-label small fw-bold">Otel Seçimi</label>
+                            <label class="form-label small fw-bold text-dark">Otel Seçimi</label>
                             <select id="bookingHotelSelect" class="form-select" required disabled>
                                 <option value="">Önce Şehir Seçiniz</option>
                             </select>
                         </div>
                         
                         <div class="col-md-4">
-                            <label class="form-label small fw-bold">Oda Seçimi</label>
+                            <label class="form-label small fw-bold text-dark">Oda Seçimi</label>
                             <select id="bookingRoomSelect" name="room_id" class="form-select" required disabled>
                                 <option value="">Önce Otel Seçiniz</option>
                             </select>
                         </div>
-                        <div class="col-md-6"><label class="form-label small fw-bold">Giriş Tarihi</label><input type="date" name="check_in" id="admin_check_in" class="form-control" required></div>
-                        <div class="col-md-6"><label class="form-label small fw-bold">Çıkış Tarihi</label><input type="date" name="check_out" id="admin_check_out" class="form-control" required></div>
+                        <div class="col-md-6"><label class="form-label small fw-bold text-dark">Giriş Tarihi</label><input type="date" name="check_in" id="admin_check_in" class="form-control" required></div>
+                        <div class="col-md-6"><label class="form-label small fw-bold text-dark">Çıkış Tarihi</label><input type="date" name="check_out" id="admin_check_out" class="form-control" required></div>
                         <div class="col-12 mt-4"><button type="submit" class="btn btn-primary w-100 fw-bold py-2">Kaydet</button></div>
                     </div>
                 </form>
@@ -380,18 +395,16 @@
 
 <script>
     $(document).ready(function() {
-        // Tüm tabloları Akıllı Tablo (DataTables) yap ve Türkçeleştir
         $('.table').DataTable({
             "language": {
                 "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/tr.json"
             },
             "pageLength": 10,
-            "destroy": true  // Çift yüklemeyi önle
+            "destroy": true
         });
     });
 
     document.addEventListener("DOMContentLoaded", function() {
-        // Tarih kontrolü
         function getLocalISODate(date) {
             let offset = date.getTimezoneOffset() * 60000;
             return (new Date(date - offset)).toISOString().split('T')[0];
@@ -418,7 +431,6 @@
             });
         }
 
-        // API ile İl ve İlçe Çekme Motoru (Otel Ekleme Modalı İçin)
         const adminCitySelect = document.getElementById('adminCity');
         const adminDistrictSelect = document.getElementById('adminDistrict');
 
@@ -454,7 +466,7 @@
                         });
                     }
                 })
-                .catch(error => console.error("API'den konumlar çekilirken hata oluştu:", error));
+                .catch(error => console.error("API Hatası:", error));
         }
 
         const bookingCitySelect = document.getElementById('bookingCitySelect');
@@ -462,8 +474,6 @@
         const bookingRoomSelect = document.getElementById('bookingRoomSelect');
 
         if (bookingCitySelect && bookingHotelSelect && bookingRoomSelect) {
-            
-
             bookingCitySelect.addEventListener('change', function() {
                 const selectedCity = this.value;
 
@@ -477,7 +487,6 @@
 
                 bookingHotelSelect.disabled = false;
                 bookingHotelSelect.innerHTML = '<option value="">Oteller Aranıyor...</option>';
-                
                 bookingRoomSelect.innerHTML = '<option value="">Önce Otel Seçiniz</option>';
                 bookingRoomSelect.disabled = true;
 
@@ -498,7 +507,6 @@
                     })
                     .catch(error => console.error("Otel API Hatası:", error));
             });
-
 
             bookingHotelSelect.addEventListener('change', function() {
                 const selectedHotelId = this.value;

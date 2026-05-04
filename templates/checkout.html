@@ -6,6 +6,9 @@
             <h4 class="mb-3 fw-bold text-white"><i class="bi bi-credit-card-2-front text-info me-2"></i>{{ t('payment_info') }}</h4>
             
             <form action="/checkout/{{ room._id }}?checkin={{ checkin }}&checkout={{ checkout }}" method="POST" class="needs-validation">
+                <!-- CSRF GÜVENLİK KALKANI -->
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                
                 <div class="row g-3 p-4 rounded-4 mb-4 glass-card">
                     <h5 class="fw-bold mb-1 text-white border-bottom border-secondary pb-2">{{ t('customer_info') }}</h5>
                     <div class="col-sm-12">
@@ -87,25 +90,10 @@
 </div>
 
 <style>
-    .glass-card {
-        background: rgba(30, 41, 59, 0.6);
-        backdrop-filter: blur(16px);
-        border: 1px solid rgba(255,255,255,0.1) !important;
-    }
-    .glass-input {
-        background-color: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        color: #f8fafc !important;
-        transition: all 0.3s ease;
-    }
-    .glass-input:focus {
-        background-color: rgba(255, 255, 255, 0.1) !important;
-        border-color: #38bdf8 !important;
-        box-shadow: 0 0 15px rgba(56, 189, 248, 0.3) !important;
-    }
-    .glass-input::placeholder {
-        color: rgba(255,255,255,0.3) !important;
-    }
+    .glass-card { background: rgba(30, 41, 59, 0.6); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.1) !important; }
+    .glass-input { background-color: rgba(255, 255, 255, 0.05) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; color: #f8fafc !important; transition: all 0.3s ease; }
+    .glass-input:focus { background-color: rgba(255, 255, 255, 0.1) !important; border-color: #38bdf8 !important; box-shadow: 0 0 15px rgba(56, 189, 248, 0.3) !important; }
+    .glass-input::placeholder { color: rgba(255,255,255,0.3) !important; }
 </style>
 
 <script>
