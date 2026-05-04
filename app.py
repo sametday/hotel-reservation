@@ -25,8 +25,9 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "pasha_hotels_secret_2026")
 csrf = CSRFProtect(app)
 
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
-app.config['MAIL_PORT'] = 587
-app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_PORT'] = 465           # 587 YERİNE 465 YAPTIK
+app.config['MAIL_USE_TLS'] = False      # TLS'İ KAPATTIK
+app.config['MAIL_USE_SSL'] = True       # SSL'İ AKTİF ETTİK
 app.config['MAIL_USERNAME'] = os.environ.get('EMAIL_USER')
 app.config['MAIL_PASSWORD'] = os.environ.get('EMAIL_PASS')
 app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('EMAIL_USER')
