@@ -10,7 +10,6 @@
                         <h2 class="fw-bold mt-2 text-white">{{ t('login') }}</h2>
                     </div>
                     <form action="/login" method="POST">
-                        <!-- CSRF GÜVENLİK KALKANI -->
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         
                         <div class="mb-3">
@@ -26,7 +25,6 @@
                         </button>
                     </form>
                     
-                    <!-- ŞİFREMİ UNUTTUM LİNKİ -->
                     <div class="text-center mt-3">
                         <a href="/forgot-password" class="text-warning small text-decoration-none fw-bold"><i class="bi bi-unlock-fill me-1"></i>Şifremi Unuttum</a>
                     </div>

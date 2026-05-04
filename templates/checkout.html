@@ -6,7 +6,6 @@
             <h4 class="mb-3 fw-bold text-white"><i class="bi bi-credit-card-2-front text-info me-2"></i>{{ t('payment_info') }}</h4>
             
             <form action="/checkout/{{ room._id }}?checkin={{ checkin }}&checkout={{ checkout }}" method="POST" class="needs-validation">
-                <!-- CSRF GÜVENLİK KALKANI -->
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 
                 <div class="row g-3 p-4 rounded-4 mb-4 glass-card">

@@ -10,7 +10,6 @@
                         <h2 class="fw-bold mt-2 text-white">{{ t('register') }}</h2>
                     </div>
                     <form action="/register" method="POST">
-                        <!-- CSRF GÜVENLİK KALKANI -->
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         
                         <div class="mb-3">

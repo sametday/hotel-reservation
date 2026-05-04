@@ -9,9 +9,9 @@ import difflib
 import re
 import random
 import os
+from threading import Thread  # 502 Çökmesini Engelleyen Asenkron Kahraman
 from dotenv import load_dotenv
 
-# YENİ EKLENEN GÜVENLİK VE MAİL KÜTÜPHANELERİ
 from flask_wtf.csrf import CSRFProtect
 from flask_mail import Mail, Message
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired
@@ -21,28 +21,33 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "pasha_hotels_secret_2026") 
 
-# GÜVENLİK (CSRF) VE MAİL (SMTP) AYARLARI
 csrf = CSRFProtect(app)
 
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
-app.config['MAIL_PORT'] = 465           # 587 YERİNE 465 YAPTIK
-app.config['MAIL_USE_TLS'] = False      # TLS'İ KAPATTIK
-app.config['MAIL_USE_SSL'] = True       # SSL'İ AKTİF ETTİK
+app.config['MAIL_PORT'] = 465
+app.config['MAIL_USE_TLS'] = False
+app.config['MAIL_USE_SSL'] = True
 app.config['MAIL_USERNAME'] = os.environ.get('EMAIL_USER')
 app.config['MAIL_PASSWORD'] = os.environ.get('EMAIL_PASS')
 app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('EMAIL_USER')
 mail = Mail(app)
 
-# Şifre sıfırlama token'ları için kriptolayıcı
 token_serializer = URLSafeTimedSerializer(app.secret_key)
 
-# Veritabanı Bağlantısı
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
 client = MongoClient(MONGO_URI)
 db = client['otel_db']
 hotels_col = db['hotels']
 rooms_col = db['rooms']
 bookings_col = db['bookings']
+
+# --- ASENKRON MAİL GÖNDERİCİ ---
+def send_async_email(app, msg):
+    with app.app_context():
+        try:
+            mail.send(msg)
+        except Exception as e:
+            print(f"SMTP Engeli veya Hata: {str(e)}")
 
 # ==============================================================
 #                 ÇOKLU DİL (i18n) MOTORU
@@ -180,7 +185,6 @@ def forgot_password():
         email = request.form.get('email').lower().strip()
         user = db.users.find_one({"email": email})
         if user:
-            # Token oluştur ve Mail gönder
             token = token_serializer.dumps(email, salt='password-reset-salt')
             reset_url = url_for('reset_password', token=token, _external=True)
             msg = Message("36Otel - Şifre Sıfırlama Bağlantısı", recipients=[email])
@@ -188,35 +192,37 @@ def forgot_password():
             <h3>Merhaba {user['name']},</h3>
             <p>Şifrenizi sıfırlamak için aşağıdaki bağlantıya tıklayın. Bu bağlantı 1 saat boyunca geçerlidir.</p>
             <p><a href="{reset_url}" style="background-color:#c5a059; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Şifremi Sıfırla</a></p>
-            <p>Eğer bu isteği siz yapmadıysanız lütfen bu maili dikkate almayın.</p>
             """
-            try:
-                mail.send(msg)
-            except Exception as e:
-                print("Mail hatası:", str(e))
-        
-        # Güvenlik gereği her halükarda aynı mesajı veriyoruz ki sistemde hangi maillerin olduğu taramasınlar.
-        flash("Eğer e-posta adresiniz sistemimizde kayıtlıysa, sıfırlama bağlantısı gönderilmiştir.", "info")
+            
+            # ASENKRON MAİL GÖNDERİMİ (TIMEOUT ÖNLER)
+            Thread(target=send_async_email, args=(app, msg)).start()
+            
+            # KONSOLA LİNKİ YAZDIRIYORUZ Kİ RENDER ENGELLERSE KOPYALAYABİLESİN
+            print("\n" + "="*50)
+            print("DİKKAT! RENDER SMTP ENGELİ VARSA LİNK BURADA:")
+            print(reset_url)
+            print("="*50 + "\n")
+
+        flash("Eğer e-posta adresiniz kayıtlıysa, sıfırlama bağlantısı gönderilmiştir.", "info")
         return redirect(url_for('login'))
     return render_template('forgot_password.html')
 
 @app.route('/reset-password/<token>', methods=['GET', 'POST'])
 def reset_password(token):
     try:
-        # Token süresi 1 saat (3600 saniye)
         email = token_serializer.loads(token, salt='password-reset-salt', max_age=3600)
     except SignatureExpired:
-        flash("Şifre sıfırlama bağlantısının süresi dolmuş. Lütfen tekrar istek gönderin.", "danger")
+        flash("Şifre sıfırlama bağlantısının süresi dolmuş.", "danger")
         return redirect(url_for('forgot_password'))
     except Exception:
-        flash("Geçersiz veya bozuk bir bağlantı kullandınız.", "danger")
+        flash("Geçersiz veya bozuk bir bağlantı.", "danger")
         return redirect(url_for('forgot_password'))
 
     if request.method == 'POST':
         new_password = request.form.get('password')
         hashed_pw = generate_password_hash(new_password, method='pbkdf2:sha256')
         db.users.update_one({"email": email}, {"$set": {"password": hashed_pw}})
-        flash("Şifreniz başarıyla güncellendi! Yeni şifrenizle giriş yapabilirsiniz.", "success")
+        flash("Şifreniz başarıyla güncellendi! Giriş yapabilirsiniz.", "success")
         return redirect(url_for('login'))
     
     return render_template('reset_password.html', token=token)
@@ -257,10 +263,8 @@ def admin_dashboard():
     for b in bookings_cursor:
         room = b.get('room_info') or {}
         hotel = b.get('hotel_info') or {}
-        
         b['room_info'] = room if room.get('room_type') else {"room_type": "Silinmiş Oda", "room_number": "-"}
         b['hotel_name'] = hotel.get('name', 'Bilinmeyen Otel')
-        
         price = safe_float(b.get('total_price', 0))
         b['total_price'] = price
         total_revenue += price
@@ -379,7 +383,6 @@ def search():
         checkout = request.form.get('checkout')
         adults = int(request.form.get('adults', 1))
         children = int(request.form.get('children', 0))
-        
         session['last_search'] = {
             'city': city, 'district': district, 'checkin': checkin,
             'checkout': checkout, 'adults': adults, 'children': children
@@ -437,14 +440,11 @@ def search():
         hash_val = sum(ord(c) for c in str(hotel['_id']))
         hotel['amenities'] = []
         for i, am in enumerate(amenities_list):
-            if (hash_val + i) % 2 == 0:
-                hotel['amenities'].append(am)
-        if not hotel['amenities']:
-            hotel['amenities'] = [amenities_list[0], amenities_list[4]]
+            if (hash_val + i) % 2 == 0: hotel['amenities'].append(am)
+        if not hotel['amenities']: hotel['amenities'] = [amenities_list[0], amenities_list[4]]
             
         hotel['available_rooms'] = [r for r in available_rooms if r['hotel_id'] == hotel['_id']]
-        if hotel['available_rooms']:
-            hotel['starting_price'] = min(r['price'] for r in hotel['available_rooms'])
+        if hotel['available_rooms']: hotel['starting_price'] = min(r['price'] for r in hotel['available_rooms'])
 
     return render_template('hotels.html', hotels=final_hotels, checkin=checkin, checkout=checkout, city=city, total_guests=total_guests)
 
@@ -482,7 +482,7 @@ def checkout(room_id):
         }
         db.bookings.insert_one(booking_doc)
         
-        # GERÇEK MAİL GÖNDERİMİ (SİSTEM ŞAHLANIYOR)
+        # ASENKRON MAİL GÖNDERİMİ (TIMEOUT ÖNLER)
         if app.config['MAIL_USERNAME']:
             msg = Message(f"36Otel - {hotel['name']} Rezervasyon Onayı", recipients=[email])
             msg.html = f"""
@@ -501,10 +501,7 @@ def checkout(room_id):
                 <p style="text-align: center; color: #555;">Resmi barkodlu PDF e-biletinizi sisteme giriş yaparak <b>Rezervasyonlarım</b> sayfasından indirebilirsiniz.</p>
             </div>
             """
-            try:
-                mail.send(msg)
-            except Exception as e:
-                print("HATA: E-posta gönderilemedi. Gmail ayarlarını kontrol et.", e)
+            Thread(target=send_async_email, args=(app, msg)).start()
 
         flash(f"Ödeme Başarılı! Faturanız ve e-biletiniz {email} adresine gönderildi.", "success")
         return redirect(url_for('index'))
