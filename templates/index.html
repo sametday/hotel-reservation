@@ -1,97 +1,104 @@
 {% extends "base.html" %}
 {% block content %}
 
+<!-- HERO BÖLÜMÜ (Ana Arama Ekranı) -->
+<div class="hero-section position-relative" style="background: url('https://images.unsplash.com/photo-1542314831-c6a4d14d2315') center/cover no-repeat; min-height: 85vh; display: flex; align-items: center;">
+    <div class="position-absolute top-0 start-0 w-100 h-100 bg-dark" style="opacity: 0.65;"></div>
+    
+    <div class="container position-relative z-index-1 text-center text-white mt-5">
+        <h1 class="display-3 fw-bold mb-3" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.6);">{{ t('hero_title') }}</h1>
+        <p class="fs-4 mb-5 text-white-50" style="text-shadow: 1px 1px 3px rgba(0,0,0,0.6);">{{ t('hero_desc') }}</p>
+
+        <!-- ARAMA ÇUBUĞU (Glassmorphism & Görünür Etiketler) -->
+        <div class="card border-0 rounded-4 p-4 mx-auto glass-search-card" style="max-width: 1050px; background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(20px); box-shadow: 0 15px 35px rgba(0,0,0,0.4);">
+            <form action="/search" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                
+                <div class="row g-3 text-start align-items-end">
+                    
+                    <!-- İl Seçimi -->
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold text-white mb-2 small letter-spacing-1"><i class="bi bi-geo-alt text-info me-1"></i>{{ t('city') }}</label>
+                        <select name="city" id="searchCity" class="form-select form-select-lg bg-dark text-white border-secondary shadow-none">
+                            <option value="">{{ t('select') }}</option>
+                        </select>
+                    </div>
+
+                    <!-- İlçe Seçimi -->
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold text-white mb-2 small letter-spacing-1"><i class="bi bi-map text-info me-1"></i>{{ t('district') }}</label>
+                        <select name="district" id="searchDistrict" class="form-select form-select-lg bg-dark text-white border-secondary shadow-none">
+                            <option value="">{{ t('select_city_first') }}</option>
+                        </select>
+                    </div>
+
+                    <!-- Giriş Tarihi -->
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold text-white mb-2 small letter-spacing-1"><i class="bi bi-calendar-check text-info me-1"></i>{{ t('checkin') }}</label>
+                        <input type="date" name="checkin" id="checkin" class="form-control form-control-lg bg-dark text-white border-secondary shadow-none" required>
+                    </div>
+
+                    <!-- Çıkış Tarihi -->
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold text-white mb-2 small letter-spacing-1"><i class="bi bi-calendar-x text-info me-1"></i>{{ t('checkout') }}</label>
+                        <input type="date" name="checkout" id="checkout" class="form-control form-control-lg bg-dark text-white border-secondary shadow-none" required>
+                    </div>
+
+                    <!-- Yetişkin -->
+                    <div class="col-md-1">
+                        <label class="form-label fw-bold text-white mb-2 small letter-spacing-1">{{ t('adults') }}</label>
+                        <input type="number" name="adults" class="form-control form-control-lg bg-dark text-white border-secondary text-center shadow-none" value="2" min="1" required>
+                    </div>
+
+                    <!-- Çocuk -->
+                    <div class="col-md-1">
+                        <label class="form-label fw-bold text-white mb-2 small letter-spacing-1">{{ t('children') }}</label>
+                        <input type="number" name="children" class="form-control form-control-lg bg-dark text-white border-secondary text-center shadow-none" value="0" min="0" required>
+                    </div>
+
+                    <!-- Arama Butonu -->
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-lg w-100 fw-bold shadow-lg text-white border-0" style="background: linear-gradient(45deg, #38bdf8, #0ea5e9); height: 48px; border-radius: 10px;">
+                            <i class="bi bi-search me-1"></i> {{ t('search_btn') }}
+                        </button>
+                    </div>
+                    
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <style>
-    input[type="date"], select, input[type="text"], input[type="number"] {
-        color: #f8fafc !important;
-        background-color: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(255,255,255,0.2) !important;
-        min-height: 48px;
-        backdrop-filter: blur(10px);
-        transition: all 0.3s ease;
-    }
-    input[type="date"]:focus, select:focus, input[type="text"]:focus, input[type="number"]:focus {
-        background-color: rgba(255, 255, 255, 0.1) !important;
-        box-shadow: 0 0 15px rgba(56, 189, 248, 0.3) !important;
+    .letter-spacing-1 { letter-spacing: 0.5px; }
+    /* Dark input takvim ikonunu (picker) beyaz yapma hilesi */
+    ::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+    
+    .glass-search-card select:focus, 
+    .glass-search-card input:focus {
         border-color: #38bdf8 !important;
-        color: #fff !important;
-    }
-    select option {
-        background-color: #1e293b;
-        color: #fff;
+        box-shadow: 0 0 0 0.25rem rgba(56, 189, 248, 0.25) !important;
     }
 </style>
 
-<div class="p-5 mb-4 bg-dark text-white rounded-5 shadow-lg position-relative" 
-     style="background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), url('https://images.unsplash.com/photo-1455587734955-081b22074882?auto=format&fit=crop&w=1920&q=80') center/cover; height: 500px;">
-    <div class="container py-5 text-center mt-5">
-        <h1 class="display-3 fw-bold">{{ t('hero_title') }}</h1>
-        <p class="fs-4 fw-light">{{ t('hero_desc') }}</p>
-    </div>
-</div>
-
-<div class="container position-relative" style="margin-top: -80px; z-index: 10;">
-    <div class="card shadow-lg border-0 p-4 rounded-4" style="background: rgba(30, 41, 59, 0.6); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1) !important;">
-        <form action="/search" method="POST" class="row g-2 align-items-end">
-            
-            <div class="col-md-2">
-                <label class="form-label fw-bold text-muted small text-uppercase"><i class="bi bi-geo-alt-fill me-1"></i>{{ t('city') }}</label>
-                <select name="city" id="citySelect" class="form-select shadow-sm" required>
-                    <option value="">{{ t('select') }}</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label fw-bold text-muted small text-uppercase">{{ t('district') }}</label>
-                <select name="district" id="districtSelect" class="form-select shadow-sm">
-                    <option value="">{{ t('select_city_first') }}</option>
-                </select>
-            </div>
-            
-            <div class="col-md-2">
-                <label class="form-label fw-bold text-muted small text-uppercase">{{ t('checkin') }}</label>
-                <input type="date" name="checkin" id="checkin" class="form-control shadow-sm" required>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label fw-bold text-muted small text-uppercase">{{ t('checkout') }}</label>
-                <input type="date" name="checkout" id="checkout" class="form-control shadow-sm" required>
-            </div>
-
-            <div class="col-md-1">
-                <label class="form-label fw-bold text-muted small text-uppercase">{{ t('adults') }}</label>
-                <input type="number" name="adults" class="form-control shadow-sm text-center" min="1" value="2" required>
-            </div>
-            <div class="col-md-1">
-                <label class="form-label fw-bold text-muted small text-uppercase">{{ t('children') }}</label>
-                <input type="number" name="children" class="form-control shadow-sm text-center" min="0" value="0" required>
-            </div>
-            
-            <div class="col-md-2">
-                <button type="submit" class="btn w-100 fw-bold py-2 shadow position-relative overflow-hidden" style="min-height: 48px; background: linear-gradient(45deg, #38bdf8, #818cf8); border: none; color: white; transition: all 0.3s ease; border-radius: 8px; box-shadow: 0 0 20px rgba(56, 189, 248, 0.4) !important; text-transform: uppercase; letter-spacing: 1px;">{{ t('search_btn') }}</button>
-            </div>
-        </form>
-    </div>
-</div>
-
 <script>
     document.addEventListener("DOMContentLoaded", function() {
+        const citySelect = document.getElementById('searchCity');
+        const districtSelect = document.getElementById('searchDistrict');
         
-        // ================= 1. DİNAMİK 81 İL/İLÇE MOTORU (API İLE) =================
-        const citySelect = document.getElementById('citySelect');
-        const districtSelect = document.getElementById('districtSelect');
-        
-        // Jinja'dan JS'e çeviri aktarımı
-        const t_all_districts = "{{ t('all_districts') }}";
-        const t_select_city_first = "{{ t('select_city_first') }}";
+        // JINJA'DAN JAVASCRIPT'E DİNAMİK ÇEVİRİ AKTARIMI
+        const txtSelect = "{{ t('select') }}";
+        const txtSelectCityFirst = "{{ t('select_city_first') }}";
 
-        if (citySelect && districtSelect) {
-            // Arka planda kendi REST API'mize istek atıp 973 ilçeyi çekiyoruz
+        // İl - İlçe API Bağlantısı
+        if(citySelect && districtSelect) {
             fetch('/api/v1/locations')
                 .then(response => response.json())
                 .then(res => {
                     if(res.status === "success") {
                         const locationData = res.data;
-
-                        // 81 İli alfabetik olarak sıralayıp Dropdown'a ekle
+                        
+                        // Şehirleri doldur
                         Object.keys(locationData).sort().forEach(city => {
                             const option = document.createElement('option');
                             option.value = city;
@@ -99,16 +106,14 @@
                             citySelect.appendChild(option);
                         });
 
-                        // Kullanıcı bir il seçtiğinde, o ilin ilçelerini getir
+                        // Şehir değişince İlçeleri getir ve ÇEVİRİ DEĞİŞKENLERİNİ kullan
                         citySelect.addEventListener('change', function() {
                             const selectedCity = this.value;
-                            districtSelect.innerHTML = ''; // Eski ilçeleri temizle
+                            districtSelect.innerHTML = ''; 
 
                             if(selectedCity && locationData[selectedCity]) {
-                                // Arama motoru için "Tüm İlçeler" seçeneğini en başa ekle
-                                districtSelect.innerHTML = `<option value="">${t_all_districts}</option>`;
-                                
-                                // Seçilen ilin ilçelerini ekle
+                                // Dinamik olarak İngilizce/Türkçe "Seçiniz" yazacak
+                                districtSelect.innerHTML = `<option value="">${txtSelect}</option>`;
                                 locationData[selectedCity].forEach(function(district) {
                                     const option = document.createElement('option');
                                     option.value = district;
@@ -116,20 +121,21 @@
                                     districtSelect.appendChild(option);
                                 });
                             } else {
-                                districtSelect.innerHTML = `<option value="">${t_select_city_first}</option>`;
+                                // Dinamik olarak İngilizce/Türkçe "Önce İl Seçin" yazacak
+                                districtSelect.innerHTML = `<option value="">${txtSelectCityFirst}</option>`;
                             }
                         });
                     }
                 })
-                .catch(error => console.error("API'den konumlar çekilirken hata oluştu:", error));
+                .catch(err => console.error("Lokasyon API Hatası:", err));
         }
 
-        // ================= 2. GELİŞMİŞ TARİH KONTROLÜ =================
+        // Tarih Kısıtlamaları (Geçmişe rezervasyon yapılmasını engeller)
         function getLocalISODate(date) {
             let offset = date.getTimezoneOffset() * 60000;
             return (new Date(date - offset)).toISOString().split('T')[0];
         }
-
+        
         const todayDate = new Date();
         const tomorrowDate = new Date(todayDate);
         tomorrowDate.setDate(tomorrowDate.getDate() + 1);
@@ -139,17 +145,18 @@
 
         if(checkinInput && checkoutInput) {
             checkinInput.min = getLocalISODate(todayDate);
-            checkoutInput.min = getLocalISODate(tomorrowDate); 
+            checkoutInput.min = getLocalISODate(tomorrowDate);
 
             checkinInput.addEventListener('change', function() {
-                let minCheckoutDate = new Date(this.value);
-                minCheckoutDate.setDate(minCheckoutDate.getDate() + 1);
+                let minCheckout = new Date(this.value);
+                minCheckout.setDate(minCheckout.getDate() + 1);
+                let minCheckStr = getLocalISODate(minCheckout);
                 
-                let minCheckoutStr = getLocalISODate(minCheckoutDate);
-                checkoutInput.min = minCheckoutStr;
+                checkoutInput.min = minCheckStr;
                 
-                if(!checkoutInput.value || checkoutInput.value < minCheckoutStr) {
-                    checkoutInput.value = minCheckoutStr;
+                // Eğer çıkış tarihi, giriş tarihinden eskiyse otomatik düzelt
+                if(!checkoutInput.value || checkoutInput.value < minCheckStr) {
+                    checkoutInput.value = minCheckStr;
                 }
             });
         }
