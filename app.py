@@ -7,7 +7,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import difflib
 import re
-import random
 import os
 from threading import Thread
 from dotenv import load_dotenv
@@ -39,7 +38,7 @@ bookings_col = db['bookings']
 def send_resend_email_async(subject, html_content, to_email):
     try:
         params = {
-            "from": "36Otel <info@sametdayioglu.com>",
+            "from": "36Otel <info@sametdayioglu.com>", 
             "to": [to_email],
             "subject": subject,
             "html": html_content,
@@ -177,7 +176,7 @@ def logout():
     return redirect(url_for('index'))
 
 # ==============================================================
-#                 ŞİFRE SIFIRLAMA (YENİ)
+#                 ŞİFRE SIFIRLAMA
 # ==============================================================
 @app.route('/forgot-password', methods=['GET', 'POST'])
 def forgot_password():
@@ -196,8 +195,6 @@ def forgot_password():
                 <p><a href="{reset_url}" style="background-color:#c5a059; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Şifremi Sıfırla</a></p>
             </div>
             """
-            
-            # MAİLİ RESEND API ÜZERİNDEN ARKA PLANDA FIRLATIYORUZ
             Thread(target=send_resend_email_async, args=(subject, html_content, email)).start()
 
         flash("Eğer e-posta adresiniz kayıtlıysa, sıfırlama bağlantısı gönderilmiştir.", "info")
@@ -470,6 +467,7 @@ def checkout(room_id):
         email = current_user.email if current_user.is_authenticated else request.form.get('email')
         phone = request.form.get('phone')
 
+        # Rezervasyonu DB'ye kaydet ve ID'sini al
         booking_doc = {
             "customer_name": customer_name, "email": email, "phone": phone,
             "hotel_name": hotel['name'], "room_id": room['_id'],
@@ -477,29 +475,60 @@ def checkout(room_id):
             "check_in": checkin, "check_out": checkout_date,
             "total_price": total_price, "created_at": datetime.now()
         }
-        db.bookings.insert_one(booking_doc)
+        result = db.bookings.insert_one(booking_doc)
+        booking_id = str(result.inserted_id) # QR Kod için ID'yi çektik
         
-        # RESEND API İLE E-POSTA GÖNDERİMİ
-        subject = f"36Otel - {hotel['name']} Rezervasyon Onayı"
+        # QR KOD URL'Sİ
+        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=36OTEL-VERIFY-{booking_id}"
+
+        # RESEND API İLE QR KODLU ŞIK E-POSTA
+        subject = f"36Otel - {hotel['name']} Rezervasyon Onayı ve E-Bilet"
         html_content = f"""
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px;">
-            <h2 style="color: #c5a059; text-align: center;">Rezervasyon Onaylandı!</h2>
-            <p>Sayın <b>{customer_name}</b>,</p>
-            <p><b>{hotel['name']}</b> otelindeki rezervasyonunuz başarıyla alınmıştır. İşlem detaylarınız aşağıdadır:</p>
-            <hr>
-            <ul style="list-style: none; padding: 0;">
-                <li>🏨 <b>Oda Tipi:</b> {room['room_type']} (No: {room['room_number']})</li>
-                <li>📅 <b>Giriş Tarihi:</b> {checkin}</li>
-                <li>📅 <b>Çıkış Tarihi:</b> {checkout_date} ({days} Gece)</li>
-                <li>💰 <b>Ödenen Tutar:</b> {total_price} TL</li>
-            </ul>
-            <hr>
-            <p style="text-align: center; color: #555;">Resmi barkodlu PDF e-biletinizi sisteme giriş yaparak <b>Rezervasyonlarım</b> sayfasından indirebilirsiniz.</p>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+            <div style="background-color: #0f172a; padding: 20px; text-align: center;">
+                <h1 style="color: #38bdf8; margin: 0;">36Otel</h1>
+                <p style="color: #94a3b8; margin: 5px 0 0 0;">Güvenli Konaklama Belgesi</p>
+            </div>
+            
+            <div style="padding: 30px;">
+                <h2 style="color: #333; text-align: center; margin-top: 0;">Rezervasyonunuz Onaylandı!</h2>
+                <p style="color: #555;">Sayın <b>{customer_name}</b>,</p>
+                <p style="color: #555;"><b>{hotel['name']}</b> otelindeki rezervasyon işleminiz başarıyla tamamlanmıştır.</p>
+                
+                <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 10px; border-bottom: 1px solid #eee; color: #555;"><b>Oda:</b></td>
+                        <td style="padding: 10px; border-bottom: 1px solid #eee; color: #333; text-align: right;">{room['room_type']} (No: {room['room_number']})</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border-bottom: 1px solid #eee; color: #555;"><b>Giriş:</b></td>
+                        <td style="padding: 10px; border-bottom: 1px solid #eee; color: #333; text-align: right;">{checkin}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border-bottom: 1px solid #eee; color: #555;"><b>Çıkış:</b></td>
+                        <td style="padding: 10px; border-bottom: 1px solid #eee; color: #333; text-align: right;">{checkout_date} ({days} Gece)</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; color: #555;"><b>Tutar:</b></td>
+                        <td style="padding: 10px; color: #10b981; text-align: right; font-size: 1.2rem;"><b>{total_price} TL</b></td>
+                    </tr>
+                </table>
+
+                <div style="text-align: center; margin-top: 30px; padding: 20px; background-color: #f8fafc; border-radius: 8px;">
+                    <p style="margin-top: 0; color: #64748b; font-size: 0.9rem;">Otele girişte bu QR kodu görevliye gösterebilirsiniz.</p>
+                    <img src="{qr_url}" alt="Bilet QR Kodu" style="border: 4px solid white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <p style="margin-bottom: 0; margin-top: 10px; color: #94a3b8; font-size: 0.7rem; font-family: monospace;">ID: {booking_id}</p>
+                </div>
+            </div>
+            
+            <div style="background-color: #f1f5f9; padding: 15px; text-align: center; font-size: 0.8rem; color: #64748b;">
+                Biletinizi ayrıca sitemizdeki <a href="https://www.sametdayioglu.com/my-bookings" style="color: #38bdf8; text-decoration: none;">Rezervasyonlarım</a> sayfasından PDF olarak da indirebilirsiniz.
+            </div>
         </div>
         """
         Thread(target=send_resend_email_async, args=(subject, html_content, email)).start()
 
-        flash(f"Ödeme Başarılı! Faturanız ve e-biletiniz {email} adresine gönderildi.", "success")
+        flash(f"Ödeme Başarılı! E-biletiniz ve QR kodunuz {email} adresine gönderildi.", "success")
         return redirect(url_for('index'))
 
     return render_template('checkout.html', room=room, hotel=hotel, checkin=checkin, checkout=checkout_date, days=days, total_price=total_price)
@@ -540,7 +569,7 @@ def cancel_booking(booking_id):
     return redirect(url_for('my_bookings'))
 
 # ==============================================================
-#                 4. REST API ROTALARI (CSRF'den Muaf)
+#                 REST API ROTALARI (CSRF'den Muaf)
 # ==============================================================
 def serialize_doc(doc):
     if not doc: return None
@@ -578,7 +607,7 @@ def api_get_hotels_by_city(city):
         return jsonify({"status": "error", "message": str(e)}), 400
 
 # ==============================================================
-#                 5. STATE-MACHINE OOP CHATBOT
+#                 STATE-MACHINE OOP CHATBOT
 # ==============================================================
 class HolidayBotManager:
     def __init__(self, db_conn):
@@ -628,16 +657,21 @@ class HolidayBotManager:
         if context.get('state') == 'offering_booking':
             yes_words = ["evet", "olur", "yap", "onaylıyorum", "tamam"] if lang == 'tr' else ["yes", "ok", "confirm"]
             if any(w in text for w in yes_words):
-                if not user.is_authenticated: return ("Hızlı rezervasyon için lütfen sayfadan <b>Giriş Yapın</b>." if lang == 'tr' else "Please <b>Login</b> for quick booking."), context
-                self.db.bookings.insert_one({
-                    "customer_name": user.name, "email": user.email, "phone": "Chatbot Hızlı İşlem",
-                    "room_id": ObjectId(context.get('proposed_room_id')),
-                    "check_in": (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d"), 
-                    "check_out": (datetime.now() + timedelta(days=10)).strftime("%Y-%m-%d"),
-                    "total_price": context.get('proposed_price', 0), "created_at": datetime.now()
-                })
+                if not user.is_authenticated: 
+                    return ("İşlemi tamamlamak için lütfen önce sayfadan <b>Giriş Yapın</b>." if lang == 'tr' else "Please <b>Login</b> first."), context
+                
+                # Chatbot direkt ödeme atlatamaz, ödeme sayfasına link verir!
+                room_id = context.get('proposed_room_id')
+                checkin = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+                checkout = (datetime.now() + timedelta(days=10)).strftime("%Y-%m-%d")
+                
+                checkout_url = f"/checkout/{room_id}?checkin={checkin}&checkout={checkout}"
+                
                 context['state'] = 'browsing'; context['city'] = None
-                return "🎉 <b>İşlem Başarılı!</b><br>Rezervasyonunuz tamamlandı." if lang == 'tr' else "🎉 <b>Success!</b> Booking completed.", context
+                
+                msg = f"Harika! Odanızı sizin adınıza rezerve edilmek üzere hazırladım. İşlemi tamamlamak ve güvenli ödeme adımına geçmek için <a href='{checkout_url}' class='btn btn-sm btn-success fw-bold text-white mt-2 d-block'>💳 Ödeme Sayfasına Git</a>"
+                
+                return msg, context
             else:
                 context['state'] = 'browsing'
                 return "İşlemi iptal ettim. Nereye bakalım?" if lang == 'tr' else "Canceled. Where else?", context
