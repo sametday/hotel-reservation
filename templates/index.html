@@ -2,8 +2,8 @@
 {% block content %}
 
 <!-- GÖZ ALICI ARKA PLAN VE BAŞLIK (HERO SECTION) -->
-<div class="position-relative d-flex align-items-center justify-content-center" 
-     style="min-height: 85vh; background: linear-gradient(rgba(15, 23, 42, 0.7), rgba(15, 23, 42, 0.9)), url('https://images.unsplash.com/photo-1542314831-c6a4d27ce006?q=80&w=2000&auto=format&fit=crop') center/cover no-repeat;">
+<!-- Arka plan resmi artık CSS sınıfı olan "hero-bg" ile sağlanıyor -->
+<div class="position-relative d-flex align-items-center justify-content-center hero-bg">
     
     <div class="container position-relative" style="z-index: 2;">
         <div class="text-center mb-5 mt-4">
@@ -13,10 +13,9 @@
             <p class="fs-5 text-white-50 fw-light">{{ t('hero_desc') }}</p>
         </div>
 
-        <!-- ARAMA FORMU (BUZLU CAM EFEKTLİ VE BEYAZ YAZILI) -->
+        <!-- ARAMA FORMU (BUZLU CAM EFEKTLİ) -->
         <div class="card border-0 rounded-4 p-4 glass-card mx-auto" style="max-width: 1050px;">
             <form action="/search" method="POST">
-                <!-- CSRF GÜVENLİK KALKANI -->
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 
                 <div class="row g-3 align-items-end">
@@ -60,6 +59,15 @@
 </div>
 
 <style>
+    /* 📸 CSS İLE SAĞLAMA ALINMIŞ ARKA PLAN FOTOĞRAFI */
+    .hero-bg {
+        min-height: 85vh;
+        background-image: linear-gradient(rgba(15, 23, 42, 0.5), rgba(15, 23, 42, 0.9)), url('https://images.unsplash.com/photo-1542314831-c6a4d27ce006?q=80&w=2000&auto=format&fit=crop');
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+    }
+
     /* Tasarım ve Buzlu Cam Efektleri */
     .glass-card { 
         background: rgba(30, 41, 59, 0.6); 
@@ -79,12 +87,10 @@
         border-color: #38bdf8 !important; 
         box-shadow: 0 0 15px rgba(56, 189, 248, 0.3) !important; 
     }
-    /* Select kutusunun içindeki seçeneklerin okunabilir olması için */
     .glass-input option { 
         background-color: #1e293b; 
         color: #fff; 
     }
-    /* Takvim ikonunun siyah ekranda görünmesi için rengini tersine çeviriyoruz */
     input[type="date"]::-webkit-calendar-picker-indicator { 
         filter: invert(1); 
         opacity: 0.7; 
@@ -98,7 +104,6 @@
 
 <script>
     document.addEventListener("DOMContentLoaded", function() {
-        // --- 1. TARİH SEÇİCİ MANTIK (Geçmiş seçilemez, Çıkış Girişten önce olamaz) ---
         function getLocalISODate(date) {
             let offset = date.getTimezoneOffset() * 60000;
             return (new Date(date - offset)).toISOString().split('T')[0];
@@ -125,7 +130,6 @@
             });
         }
 
-        // --- 2. API İLE İL / İLÇE GETİRME ---
         const citySelect = document.getElementById('citySelect');
         const districtSelect = document.getElementById('districtSelect');
 
