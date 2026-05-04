@@ -12,11 +12,19 @@
                     <h5 class="fw-bold mb-1 text-white border-bottom border-secondary pb-2">{{ t('customer_info') }}</h5>
                     <div class="col-sm-12">
                         <label class="form-label small fw-bold text-white-50">{{ t('name_surname') }}</label>
-                        <input type="text" name="customer_name" class="form-control form-control-lg glass-input" required>
+                        <!-- GİRİŞ YAPILDIYSA İSMİ OTOMATİK DOLDUR -->
+                        <input type="text" name="customer_name" class="form-control form-control-lg glass-input" value="{% if current_user.is_authenticated %}{{ current_user.name }}{% endif %}" required>
                     </div>
                     <div class="col-sm-6">
                         <label class="form-label small fw-bold text-white-50">{{ t('email_desc') }}</label>
-                        <input type="email" name="email" class="form-control form-control-lg glass-input" placeholder="ornek@mail.com" required>
+                        <!-- GİRİŞ YAPILDIYSA MAİLİ OTOMATİK DOLDUR VE DEĞİŞTİRİLMESİNİ YASAKLA (READONLY) -->
+                        <input type="email" name="email" class="form-control form-control-lg glass-input" 
+                               value="{% if current_user.is_authenticated %}{{ current_user.email }}{% endif %}" 
+                               {% if current_user.is_authenticated %}readonly style="opacity: 0.7; cursor: not-allowed;"{% endif %} 
+                               placeholder="ornek@mail.com" required>
+                        {% if current_user.is_authenticated %}
+                            <small class="text-info mt-1 d-block"><i class="bi bi-info-circle me-1"></i>Biletiniz kayıtlı e-postanıza gönderilecektir.</small>
+                        {% endif %}
                     </div>
                     <div class="col-sm-6">
                         <label class="form-label small fw-bold text-white-50">{{ t('phone') }}</label>
